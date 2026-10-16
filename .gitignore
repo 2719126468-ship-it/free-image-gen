@@ -1,0 +1,27 @@
+# generated images
+*.png
+*.jpg
+*.jpeg
+*.webp
+
+# credentials - never commit these
+.env
+*.env
+*.token
+.colab-url
+.dsh/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# logs / temp
+*.log
+*.tmp
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
