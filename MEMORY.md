@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-17
+> 最后更新：2026-10-17（第 2 次修订：停烧额度 + Device key 发现 + Horde 黑图破案）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -46,8 +46,13 @@
 风格「日系二次元写实」，审核宽松，解剖清晰。
 
 - 工作副本：`~/tmp/ref_mermaid.jpg`（768×1024，142702B）
-- **状态：用户尚未选定任何一版**。kontext-pro 的 k2/k6/k7 三版质量最好
-  （k6/k7 双腿完全在床上），对比图 `~/th-img/kontext_sheet.jpg`（1170×1560，9 图拼版）
+- **状态：用户尚未选定任何一版**。现有候选（全在 `~/th-img/`，不再新增）：
+  - 第一轮 k2（脚踩地）/ k6（双腿全上床）/ k7（脚踝交叉）——对比图
+    `kontext_pick.jpg`（3 图带标签，1320×638）+ `kontext_sheet.jpg`（9 图拼版）
+  - 第二轮 fix_A / fix_B / fix_C + pose_P1 / pose_P2 / pose_P3（显式"坐着、脚掌踩床垫"措辞）
+    ——对比图 `round2_sheet.jpg`（ref + A/B/C）
+- **⚠️ 2026-10-17 用户第二次下令停止烧额度**（第二轮 6 张 kontext-pro 约 0.18 pollen，
+  被点名"别一直用额度"）。**今后任何 pollen 计费调用前必须先问用户**
 - **每轮对话前先问用户是否已选定方向，不要重复生成已否决的方案**
 
 ---
@@ -94,7 +99,9 @@ python3 scripts/pol_edit.py <ref> <out> "<instruction>" black-forest-labs/flux.1
 - 超时要给足：768×1024 quality=high 需 20–40s，curl 60s 会断
 - 审核地图：kontext/klein ✅ PASS｜`mai-image-2.6`/`gpt-image-1-mini` ❌ Azure 拦截｜
   `community/*/flux-2-dev-free` ❌ logfare 拦截
-- **`key_budget` 是预算上限不是余额**：`/account/balance` 显示 `balance:5` 但 edits 仍 402
+- **`key_budget` 是预算上限不是余额**：dashboard 建的 visible-chickadee（budget=None）edits 402
+  - **2026-10-17 修正**：**Device key（`~/.pollinations/credentials.json` 的 apiKey）可以直接付 edits**，
+    实测连续 7 张成功，balance 与 accountBalance 同步下降。**以后统一用 Device key 当 POLLEN_KEY**
 
 ### 4.3 AI Horde img2img（免费无限，但慢）
 ```bash
@@ -102,9 +109,13 @@ HORDE_USE_KEY=1 python3 scripts/horde_img2img.py <ref> <out.webp> "<prompt>" "<n
 ```
 - 白天恢复 800+ worker（夜间只有 16），实测排队 **243s / 1235s**
 - 模型：`WAI-ANI-NSFW-PONYXL`(8 workers) / `AlbedoBase XL (SDXL)` / `SwamPonyXL`
-- **坑**：PonyXL 两次不同 denoise 输出 **md5 完全相同**（`7946e480...`），
-  怀疑 img2img 未真正生效或 worker 确定性；AlbedoBase XL 正常（`f624bc13...`）
-- `aihorde.net` 必须带 `Client-Agent` 头，否则 403
+- **坑 1（已破案，2026-10-17 diag 实测）**：PonyXL 同 prompt 下 denoise 0.35/0.99
+  输出 md5 完全相同（`7946e480...`/复测 `6e40dbd2` vs `0e6d6d33`）——**根因是 worker 端
+  clip_skip=2 + 固定 seed 的确定性渲染**：PonyXL 对 denoise 不敏感（合并后等效全重绘），
+  AlbedoBase 正常（两次输出像素差 100%）。**结论：换模型即解决，不是 img2img 失效**
+- **坑 2**：`WAI-NSFW-illustrious-SDXL` 两个 denoise 输出 md5 相同且 **YAVG=0.0 纯黑图**（526B），
+  是 worker 端审查吞图，不是确定性 —— 用 `ffmpeg signalstats` 或 PIL YAVG<6 判定后直接弃
+- **坑 3**：`aihorde.net` 必须带 `Client-Agent` 头，否则 403；`stablehorde.net` 是官方正名
 - worker 会把 1024 请求降级回 512×512
 - 纯黑图 = worker 审查，用 `ffmpeg signalstats` YAVG<6 判定
 
@@ -192,9 +203,14 @@ HORDE_USE_KEY=1 python3 scripts/horde_img2img.py <ref> <out.webp> "<prompt>" "<n
 
 ## 八、待办 / 下一步
 
-- [ ] **创作任务**：等用户选定 kontext 腿部方案方向（k2 脚踩地 / k6 双腿全上床 / k7 脚踝交叉）
+- [ ] **创作任务**：等用户在现有 9 张候选里选方向（k2/k6/k7 + fix_A/B/C + pose_P1/P2/P3），
+      **不再自行生成新图**；用户点名要哪个方向再动 pollen
+- [x] **Horde PonyXL md5 相同排查**：已破案 —— PonyXL worker 确定性渲染（clip_skip=2+固定seed），
+      换 AlbedoBase XL 正常；illustrious-SDXL 是纯黑审查图（YAVG=0.0），弃用
 - [ ] **Gemini Cookie**：等用户提供 `__Secure-1PSID` + `__Secure-1PSIDTS`，然后测 `gemini-image` 的 img2img
-- [ ] **Horde PonyXL img2img 失效排查**：为何两次输出 md5 相同
+      （gw2api 二进制就绪 + DNS 已用 proot 修好，纯等 Cookie）
+- [ ] **新发现待核实**：Device key（credentials.json）能付 kontext-pro edits 费，余额还有 4.72 pollen；
+      但 pollen 是 7 天设备预算（10-24 到期），用不用、怎么用由用户拍板，**先问再烧**
 - [ ] **Perchance**：如需再战，用 EzSolver + 真 Chrome（或 termux-x11）
 - [ ] 公益站注册（需用户提供邮箱/邀请码）：moyuu.cc / vsllm.com / freeapi.dgbmc.top / aotera.cc
 - [ ] 已排除：InferencePort（401）、Craiyon（连接失败）、DeepInfra/Together/HF 匿名（要 key）、
