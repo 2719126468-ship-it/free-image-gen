@@ -31,30 +31,80 @@ MODEL="${4:-WAI-NSFW-illustrious-SDXL}"
 W="${HORDE_W:-512}"; H="${HORDE_H:-768}"; STEPS="${HORDE_STEPS:-20}"
 APIKEY="${HORDE_APIKEY:-0000000000}"
 # Rotate models when a worker returns a censored blank: NSFW-capable models
-# first, then SFW fallbacks so a run still produces something.
+# Preference pool. Order here is only a quality tie-breaker - the script
+# re-sorts by LIVE eta before submitting, because queue depth swings wildly
+# (Illustrious went from 97s eta to 81 queued jobs within minutes, while
+# PONYXL/Dreamshaper sat at eta=0s the whole time).
 if [ -n "${HORDE_MODELS:-}" ]; then
   MODELS="$HORDE_MODELS"
+  AUTO_ETA=0
 else
   MODELS="$MODEL
 WAI-ANI-NSFW-PONYXL
-Pony Diffusion XL
+CyberRealistic Pony
 Dreamshaper
-stable_diffusion"
+Grapefruit Hentai
+Hentai Diffusion
+Pony Diffusion XL
+SwamPonyXL
+AbsoluteReality
+Nova Anime XL
+AlbedoBase XL (SDXL)
+WAI-NSFW-illustrious-SDXL"
+  AUTO_ETA=1
 fi
 MAX_TRIES="${HORDE_TRIES:-4}"
 mkdir -p "$OUTDIR"
 
 # -u: under nohup python block-buffers stdout, so progress lines never appear.
-exec python3 -u - "$PROMPT" "$OUTDIR" "$SEED" "$MODELS" "$W" "$H" "$STEPS" "$APIKEY" "$MAX_TRIES" <<'PY'
+exec python3 -u - "$PROMPT" "$OUTDIR" "$SEED" "$MODELS" "$W" "$H" "$STEPS" "$APIKEY" "$MAX_TRIES" "$AUTO_ETA" <<'PY'
 import sys, json, time, os, re, subprocess
 from curl_cffi import requests as cr
 
-prompt, outdir, seed, models, w, h, steps, apikey, max_tries = sys.argv[1:10]
-models = [m for m in models.splitlines() if m.strip()]
+prompt, outdir, seed, models, w, h, steps, apikey, max_tries, auto_eta = sys.argv[1:11]
+models = [m.strip() for m in models.splitlines() if m.strip()]
 max_tries = int(max_tries)
+auto_eta = auto_eta == '1'
 API = 'https://stablehorde.net/api/v2'
 H = {'Content-Type': 'application/json', 'apikey': apikey, 'Client-Agent': 'termux-gen:1.0:dsh'}
-UA = 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36'
+
+
+def rank_by_eta(names):
+    """Sort candidate models by live backlog, least-loaded first.
+
+    /status/models?type=image reports per-model:
+      eta     - seconds for ONE job to finish (ignores queue depth)
+      queued  - megapixelsteps of backlog for that model
+      jobs    - number of queued jobs
+      count   - workers offering the model
+
+    eta alone is misleading: PONYXL reported eta=0 while sitting behind 136
+    queued requests. 'queued' is the real signal - 0 means idle, 31457280
+    means a deep backlog. Tie-break on more workers, then original order.
+    """
+    try:
+        st = cr.get(f'{API}/status/models?type=image', headers=H,
+                    impersonate='chrome120', timeout=30).json()
+    except Exception:
+        return names
+    by = {m.get('name'): m for m in st}
+    rows = []
+    for i, n in enumerate(names):
+        m = by.get(n)
+        if not m:
+            continue
+        rows.append(((m.get('queued') or 0), -(m.get('count') or 0), i, n))
+    rows.sort()
+    ranked = [r[3] for r in rows]
+    missing = [n for n in names if n not in ranked]
+    return ranked + missing
+
+
+if auto_eta:
+    models = rank_by_eta(models)
+    print('[*] models re-sorted by live backlog:')
+    for m in models[:6]:
+        print(f'      {m}')
 
 
 def blank_png(path):
@@ -63,6 +113,30 @@ def blank_png(path):
                         capture_output=True, text=True)
     m = re.search(r'YAVG:([0-9.]+)', st.stderr)
     return (float(m.group(1)) < 6.0) if m else False
+
+
+def download_image(url, path, tries=4):
+    """Download a presigned R2 URL with retries.
+
+    The URL is NOT reliably short-lived: one job was fetched successfully
+    minutes after completion. The earlier 'download failed (url expired?)'
+    was a transient network failure mislabelled as expiry, so retry and
+    report the real HTTP status instead of guessing.
+    """
+    for attempt in range(tries):
+        try:
+            r = cr.get(url, impersonate='chrome120', timeout=120)
+            if r.status_code == 200 and len(r.content) > 1000:
+                open(path, 'wb').write(r.content)
+                return True, None
+            # R2 returns an XML error body with the real reason
+            body = r.content[:200].decode('utf-8', 'replace')
+            err = f'HTTP {r.status_code}: {body[:120]}'
+        except Exception as e:
+            err = f'{type(e).__name__}: {str(e)[:120]}'
+        print(f'[-] download attempt {attempt + 1}/{tries} failed: {err}')
+        time.sleep(3)
+    return False, err
 
 
 def run_one(model, seed):
@@ -96,20 +170,19 @@ def run_one(model, seed):
             url = g0.get('img')
             print(f'[+] {model}: finished {time.time()-t0:.0f}s '
                   f'(state={g0.get("state")} censored={g0.get("censored")})')
-            # Presigned R2 URLs die within minutes - download right away.
+            # Grab the image in this same process, right after detecting done,
+            # so there is no extra poll cycle between detection and download.
             out = os.path.join(outdir, f'horde_{seed}_{w}x{h}')
-            subprocess.run(['curl', '-sS', '-m', '120', '-H', f'User-Agent: {UA}',
-                            '-o', out + '.webp', url])
-            wp = out + '.webp'
-            if not (os.path.exists(wp) and os.path.getsize(wp) > 1000):
-                return False, None, 'download failed (url expired?)'
-            subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', wp, out + '.png'])
+            ok, err = download_image(url, out + '.webp')
+            if not ok:
+                return False, None, f'download failed: {err}'
+            subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', out + '.webp', out + '.png'])
             final = out + '.png'
             if os.path.exists(final) and os.path.getsize(final) > 1000:
                 if blank_png(final):
-                    os.remove(final); os.remove(wp)
+                    os.remove(final); os.remove(out + '.webp')
                     return False, None, 'worker returned a censored blank frame'
-                os.remove(wp)
+                os.remove(out + '.webp')
                 return True, final, None
             return False, None, 'webp->png failed'
         if s.get('faulted'):

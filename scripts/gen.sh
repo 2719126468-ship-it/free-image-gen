@@ -1,14 +1,17 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # Unified free-tier image generation scheduler.
 #
-# Routes (tried in order of quality, first one with remaining quota wins):
+# Routes (auto order: anima -> poll -> horde -> cf; PREFER=quality swaps poll/horde):
 #   anima  - HuggingFace ZeroGPU, Anima-2.9B + optional LoRA. 5 min GPU/day free
 #            (PRO 40 min). Best quality, no NSFW filter. ~45s GPU per 832x1216/25.
+#   poll   - Pollinations, ~9s, zero-key, 1 image / 45 s / IP, sana engine, watermark.
+#            Best current default: the horde is at a ~16-worker trough (8-15 min).
 #   horde  - AI Horde (stablehorde.net), anonymous apikey 0000000000, unlimited
-#            runs, no NSFW filter, but 10-20 min queue. SDXL anime models.
+#            runs, no NSFW filter. Queue is capacity-bound: only 16 image workers
+#            online now (18 threads), so 512x768 waits 8-15 min. Registering (Google
+#            OAuth) drops it to ~2-5 min but cannot add workers. Set PREFER=quality.
 #   cf     - Cloudflare Workers AI, 10k neurons/day (~50 images), fast (5-15s),
 #            HAS NSFW prompt filter. No general img2img.
-#   poll   - Pollinations, 1 image / 45 s, low quality (sana), NSFW toggle.
 #
 # usage: gen.sh "prompt" [outdir] [seed] [engine]
 #   engine: auto (default) | anima | horde | cf | poll | list
@@ -37,10 +40,11 @@ usage: gen.sh "prompt" [outdir] [seed] [engine]
 
 engine:
   auto   pick the best engine that still has quota (default)
+         order: anima -> poll -> horde -> cf  (PREFER=quality swaps poll/horde)
   anima  HuggingFace ZeroGPU Anima-2.9B - best quality, 5 min GPU/day
-  horde  AI Horde SDXL - unlimited, slow (10-20 min), no filter
+  horde  AI Horde SDXL - unlimited, no filter, 8-15 min at the current worker trough
   cf     Cloudflare Workers AI - fast, ~50/day, HAS NSFW filter
-  poll   Pollinations - 1 image/45s, lowest quality
+  poll   Pollinations - ~9s, zero-key, 1 image/45s, sana engine, watermark
   list   show quota status of every engine and exit
 EOF
   exit 2
@@ -49,7 +53,7 @@ EOF
 # Resolve sibling scripts from this file's own directory so the repo works
 # from any checkout location, not just ~/dsh-hanime1.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-mkdir -p "$OUTDIR" "$WORK" || true
+mkdir -p "$OUTDIR" || true
 
 case "$ENGINE" in
   list) exec "$SCRIPT_DIR/gen_quota.sh" ;;
@@ -79,8 +83,9 @@ run_cf() {
 }
 
 run_poll() {
-  "$SCRIPT_DIR/gen_image.sh" "$PROMPT" "$OUTDIR" \
-    "${GEN_W:-768}" "${GEN_H:-1024}" "$SEED" pollinations 2>&1
+  # pol_gen.sh handles the 45s/IP free-limit window with automatic retry.
+  WIDTH="${GEN_W:-768}" HEIGHT="${GEN_H:-1024}" SEED="$SEED" MODEL="${POLL_MODEL:-flux}" \
+    "$SCRIPT_DIR/pol_gen.sh" "$PROMPT" "$OUTDIR/pol_$(date +%s).jpg" 2>&1
 }
 
 # Order matters: quality first, but never waste a run on a dead engine.
@@ -99,14 +104,25 @@ if [ "$ENGINE" = "auto" ]; then
       || echo "[-] anima: $out"
   fi
 
-  echo "[*] anima exhausted -> horde (unlimited, slow)"
+  # After anima: pick by mode. Default "fast" -> Pollinations (~9s, zero-key,
+  # watermark). Set PREFER=quality to route to AI Horde (SDXL/Illustrious, higher
+  # quality but 8-15 min while the horde sits at its ~16-worker trough).
+  if [ "${PREFER:-fast}" = "quality" ]; then
+    echo "[*] PREFER=quality -> horde (SDXL/Illustrious, 8-15 min at worker trough)"
+    if run_horde; then exit 0; fi
+    echo "[*] horde failed -> pollinations (fast fallback)"
+    run_poll
+    exit $?
+  fi
+
+  echo "[*] anima exhausted -> pollinations (~9s, zero-key; set PREFER=quality for horde)"
+  if run_poll; then exit 0; fi
+
+  echo "[*] pollinations failed -> horde (unlimited, slow)"
   if run_horde; then exit 0; fi
 
   echo "[*] horde failed -> cloudflare (has NSFW filter)"
-  if run_cf; then exit 0; fi
-
-  echo "[*] cloudflare failed -> pollinations"
-  run_poll
+  run_cf
   exit $?
 fi
 

@@ -6,18 +6,19 @@
 
 | 路线 | 认证 | 额度 | NSFW | 速度 | 质量 | 验证方式 |
 |---|---|---|---|---|---|---|
-| **AI Horde** `horde_gen.sh` | 匿名 `apikey: 0000000000` | **无限量** | **无审查** | 37s-13min（波动大） | 中高（SDXL/Illustrious） | ✅ 端到端出图 |
+| **Pollinations** `pol_gen.sh` | **无 key** | 1 张/45s/IP | 可关 | **~9s** | 中（sana 引擎，带水印） | ✅ 端到端出图 |
+| **AI Horde** `horde_gen.sh` | 匿名 `apikey: 0000000000` | 无限量但受 worker 容量压制 | **无审查** | **8-15min**（当前低谷，见下） | 中高（SDXL/Illustrious） | ✅ 端到端出图 |
 | **HF ZeroGPU** `anima_gen.sh` | HF token + `X-HF-Authorization` | 5 min GPU/天（PRO 40 min） | 无审查 | 1-10s | **最高**（Anima-2.9B） | ✅ 出图 + 触限 |
 | **Cloudflare** `gen_image.sh cf` | API token | 10k neurons/天 ≈ 50 张 | **有过滤** | 5-15s | 高（flux） | ✅ 出图 + 触限 |
-| **Pollinations** `gen_image.sh pollinations` | 无 | 1 张/45s | 可关 | 10-30s | 低（sana） | ✅ 出图 |
 | **TensorHub** `th_gen.sh` | 无 | 匿名 2 次 | 无审查 | 3-4min | 中 | ✅ 出图 + 触限 |
-| **Google Colab** | Google 账号 | 12h/会话，T4 | 无审查 | 5-10min/张 | 任意（本地模型） | ⚠️ 文档确认，未部署 |
+| **Google Colab** | Google 账号 | 12h/会话，T4（免费档配额动态、易耗尽） | 无审查 | 5-10min/张 | 任意（本地模型） | ⚠️ 配额耗尽，未跑通 |
 | ModelScope | 需手机注册 | 免费档 | 未知 | 快 | 高 | ⚠️ 仅 401 探测 |
 | SiliconFlow | 需注册 | 送额度 | 未知 | 快 | 高 | ⚠️ 仅 401 探测 |
 | Novita / fal / DeepInfra / Hyperbolic | 需注册+卡 | 免费额度小 | 未知 | 快 | 高 | ⚠️ 仅 401 探测 |
 | Krea | 需 workspace owner | **无免费档** | 未知 | 快 | 高 | ❌ 纯付费 |
+| InferencePort (`sharktide-lightning.hf.space`) | 需 API key | 图 ~10/天 | 无审查 | 快 | 高（flux-2-pro/gpt-image/seedream） | ❌ `/v1/models` 公开但生图端点 401 |
 
-**结论：真正免费且可编程的规模化路线是 AI Horde（无限量）+ Colab（12 小时 T4）。**
+**结论：当前时刻（worker 低谷）唯一稳定可用的零 key 主力是 Pollinations（9s/张，45s 限流）；AI Horde 无限量但受全网仅 16 台图像 worker 的容量压制，实测等待 8-15 分钟；规模化高质量仍需等 Colab 配额恢复或 ZeroGPU 日额度刷新。**
 
 ---
 
@@ -31,14 +32,16 @@
 - `/status/models?type=image` 的 `nsfw` 字段对所有模型都是 `null`，**无法据此筛选**，需直接传 `"nsfw":true, "censor_nsfw":false`。
 
 ### 两个坑（已写进脚本）
-1. **预签名 R2 URL 几分钟内失效** —— 拿到 `img` 字段后必须立即下载，不能延后。
+1. **预签名 R2 URL 并未分钟级失效**（更正）—— 早前"几分钟失效"是瞬时网络故障导致的误判。复测证明同一 URL 数分钟后仍能下载（200，105KB）。脚本 `download_image()` 改为 4 次重试 + 报告真实 HTTP 状态。
 2. **`censored` 元数据不可信** —— 实测一次 `state=ok censored=False` 但返回 758 字节纯黑 webp（YAVG≈0）。脚本用 `ffmpeg signalstats` 检测 YAVG<6 判定为 worker 审查，并自动切换模型重试（默认轮换 4 个模型）。
 
-### 排队实况
-- worker_count 约 16，thread_count 约 18。
-- 512×768/20 steps：最快 37 秒，最慢 13 分钟（取决于模型与排队深度）。
-- `WAI-NSFW-illustrious-SDXL` 的 eta 约 147s、jobs 82（最热）；`Dreamshaper` eta 10-30s（最快）。
-- **调优建议**：赶时间用 `Dreamshaper`/`Deliberate`/`ICBINP`（eta 0-18s）；要质量用 `WAI-NSFW-illustrious-SDXL`。
+### 排队实况与容量真相（2026-10-17 当前时刻，推翻"匿名优先级低"假设）
+- **全网在线图像 worker 仅 16 台，合计 18 并发线程，2 台维护中**（`GET /api/v2/workers?type=image`，两域名 `stablehorde.net`/`aihorde.net` 结果一致）。正常应有 100-300 台。
+- 积压最重的单台 worker `NothingDark-RTX3090` 挂 64341 个未完成 job；单 worker 吞吐仅 0.2-3.2 megapixelsteps/s，几乎全单线程。
+- 16 台 worker **全部 `nsfw=true`** → NSFW 标签不缩减可用 worker，之前"NSFW 导致排队"的假设不成立。
+- 匿名提交 512×768：队列深度 141 位，实测等待 **457-1090 秒（8-15 分钟）**。之前文档写的"37s-13min"是高峰期的乐观值，当前低谷不适用。
+- **根因是容量不是身份**：优先级（kudos）只决定在同一物理队列里插队，但队列前面 worker 数量固定为 16。注册拿 key 能把等待从 8-15min 降到约 2-5min（drex 评分 2-5min 档概率最高），但无法凭空增加 worker 或让单张更快。
+- **调优建议**：`rank_by_eta()` 已改为按 `queued`（该模型积压 megapixelsteps）排序，而非误导性的 `eta`（PONYXL 报 eta=0 实际排 136 位）。但即便挑到积压 0 的空闲模型，整体排队压力仍来自 worker 总数，排序只优化不根治。
 
 ---
 
