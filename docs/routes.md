@@ -40,7 +40,8 @@
 - 积压最重的单台 worker `NothingDark-RTX3090` 挂 64341 个未完成 job；单 worker 吞吐仅 0.2-3.2 megapixelsteps/s，几乎全单线程。
 - 16 台 worker **全部 `nsfw=true`** → NSFW 标签不缩减可用 worker，之前"NSFW 导致排队"的假设不成立。
 - 匿名提交 512×768：提交瞬间队列深度 141 位。**排序方式决定实际等待**：写死 `WAI-NSFW-illustrious-SDXL` 实测 1090s、按 `eta` 排序 428s；改为按 `queued` 排序选中积压 0 的 `WAI-ANI-NSFW-PONYXL` 后，本次 **172s 完成**（队列 141→98→92→0）。绝对等待仍随 worker 消化速度波动，低谷高峰差异大。
-- **根因是容量不是身份**：优先级（kudos）只决定在同一物理队列里插队，但队列前面 worker 数量固定为 16。注册拿 key 能把等待从 8-15min 降到约 2-5min（drex 评分 2-5min 档概率最高），但无法凭空增加 worker 或让单张更快。
+- **根因是容量不是身份**：优先级（kudos）只决定在同一物理队列里插队，但队列前面 worker 数量固定为 16。
+- **注册实测（2026-10-17，推翻"注册降到 2-5min"）**：用 Google OAuth 注册拿到 key（账号 `elysia20#549125`），但 `kudos=0.0`。同模型 DreamShaper-XL 对照实验：key 提交与匿名提交等待时间逐秒几乎相同（428 vs 430、416 vs 421、325 vs 328 秒）。**结论：注册本身不给优先级，0 kudos = 匿名。官方"Kudos influence priority"成立，但新用户注册时 kudos 为 0，需靠贡献 worker 或他人赠送才能积累。** key 已接入 `horde_gen.sh`（读 `~/.dsh/.horde-key`），一旦账号有 kudos 立即生效。
 - **调优建议与权衡**：`rank_by_eta()` 已改为按 `queued`（该模型积压 megapixelsteps）排序，而非误导性的 `eta`（PONYXL 报 eta=0 实际排 136 位）。**但实测发现新权衡**：积压 0 的 `WAI-ANI-NSFW-PONYXL` 虽 172s 秒回，出图却是彩色马赛克糊图（不可用）；质量好的 `DreamShaper` 排队更久但可用。**"最空闲"不等于"最好用"——空闲模型可能因 worker 产垃圾而没人排队。**
 - **审查检测盲区**：`blank_png()` 用 `signalstats` YAVG<6 只抓纯黑审查图，**抓不住彩色糊图**（YAVG 正常但内容是噪声）。彩色糊图需在下游人工/CLIP 评分过滤，脚本层暂无法自动判定。
 

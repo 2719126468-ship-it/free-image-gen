@@ -29,7 +29,16 @@ MODEL="${4:-WAI-NSFW-illustrious-SDXL}"
 }
 
 W="${HORDE_W:-512}"; H="${HORDE_H:-768}"; STEPS="${HORDE_STEPS:-20}"
-APIKEY="${HORDE_APIKEY:-0000000000}"
+# API key resolution. Default stays ANONYMOUS: a fresh key has kudos=0 and gets
+# no priority (verified A/B), and submitting with it drains the account to NEGATIVE
+# kudos, which is WORSE than anonymous. Only set HORDE_USE_KEY=1 once the account
+# has positive kudos (check: curl -H "apikey: $KEY" https://stablehorde.net/api/v2/find_user).
+if [ "${HORDE_USE_KEY:-0}" = "1" ] && [ -f "$HOME/.dsh/.horde-key" ]; then
+  APIKEY="$(sed -n 's/^HORDE_API_KEY=//p' "$HOME/.dsh/.horde-key" | head -1)"
+  APIKEY="${APIKEY:-0000000000}"
+else
+  APIKEY="${HORDE_APIKEY:-0000000000}"
+fi
 # Rotate models when a worker returns a censored blank: NSFW-capable models
 # Preference pool. Order here is only a quality tie-breaker - the script
 # re-sorts by LIVE eta before submitting, because queue depth swings wildly
