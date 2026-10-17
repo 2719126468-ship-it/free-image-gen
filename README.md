@@ -100,7 +100,7 @@ echo 'https://xxx.trycloudflare.com' > ~/.dsh/.colab-url
 ```
 
 一个 3.5–6h 会话在 T4 上约 350–500 张（25 步 832×1216 每张 15–40s），是本地免费方案的 10–20 倍产能。
-CPU 档时 notebook 会禁用生成，改用第 8 格做 ffmpeg/打标等后处理。
+CPU 档时 notebook 自动切到 OpenVINO 量化模型生图（默认 sana06，可切 sdxl_lightning / animagine / sd15_lcm，见第 4 格 `CPU_PRESETS`）；第 8 格做 ffmpeg/打标等后处理。
 视频用 Wan 2.2 TI2V-5B，**权重懒加载**：只有第一次请求视频才下 ~10–20GB，纯生图永不触碰。
 
 #### 4b. 在 DSH 里直接调用（`colab_gen` 工具）

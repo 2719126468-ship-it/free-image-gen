@@ -42,6 +42,7 @@ url: https://xxxx.trycloudflare.com  (printed by notebook cell 4)
 env: W H STEPS (图, 默认 832x1216/25)
      VW VH VSTEPS FRAMES VFPS (视频, 默认 1280x704/50/121帧/24fps)
      COLAB_URL OUTDIR
+     CPU_PRESET  CPU 档模型: sana06(默认,更小SDXL级) | sdxl_lightning | animagine | sd15_lcm
 
 video: 首次会触发 Colab 端下载 Wan2.2 权重(~10-20GB)；ref_image 走图生视频(I2V)
 EOF
@@ -83,15 +84,22 @@ show_health() {
 import json, sys
 d = json.load(open(sys.argv[1]))
 gpu = d.get('gpu')
+presets = '/'.join(d.get('cpu_presets', [])) or 'sana06/sdxl_lightning/animagine/sd15_lcm'
+if gpu:
+    print(f"档位    : GPU - {d.get('gpu_name')} {d.get('vram_gb')}GB")
+else:
+    print(f"档位    : CPU 档（OpenVINO INT4，当前预设 {d.get('cpu_preset', '?')}；可切 {presets}）")
 print(f"url     : {sys.argv[2]}")
-print(f"档位    : {'GPU - ' + str(d.get('gpu_name')) + ' ' + str(d.get('vram_gb')) + 'GB' if gpu else 'CPU 档（走 OpenVINO SDXL-Lightning，慢但能生图）'}")
 print(f"队列    : {d.get('pending', d.get('queue', '?'))} 待处理 · 已建任务 {d.get('jobs', 0)} 个")
 print(f"视频模型: {'已加载' if d.get('video_loaded') else '未加载（首次请求视频时才下 ~10-20GB）'}")
 print(f"输出目录: {d.get('out')}")
+if d.get('cpu_error'):
+    print(f"CPU 模型错误: {d.get('cpu_error')}")
 if d.get('video_error'):
     print(f"视频错误: {d.get('video_error')}")
 if not gpu:
-    print("\n提示: CPU 档可生图（OpenVINO SDXL-Lightning 4步，每张约 3-10 分钟），首张还需下 2GB 权重。")
+    print("\n提示: CPU 档默认 sana06（SANA 0.6B，比 SDXL 更小更快），首张先下 2.3GB 权重。")
+    print("      切档: CPU_PRESET=sana06/sdxl_lightning/animagine/sd15_lcm，或改 notebook 第4格 CPU_PRESET。")
 PY
 }
 
@@ -107,14 +115,14 @@ single() {
   mkdir -p "$TMPD" 2>/dev/null || TMPD="$HOME"
   local QF; QF=$(mktemp "$TMPD/cg.XXXXXX")
 
-  python3 - "$QF" "$PROMPT" "$NEG" "$W" "$H" "$STEPS" "$SEED" <<'PY'
+  python3 - "$QF" "$PROMPT" "$NEG" "$W" "$H" "$STEPS" "$SEED" "${CPU_PRESET:-}" <<'PY'
 import sys, json
-path, prompt, neg, w, h, steps, seed = sys.argv[1:8]
-open(path, 'w').write(json.dumps({
-    'prompt': prompt, 'negative': neg,
-    'width': int(w), 'height': int(h),
-    'steps': int(steps), 'seed': int(seed),
-}))
+path, prompt, neg, w, h, steps, seed, preset = sys.argv[1:9]
+d = {'prompt': prompt, 'negative': neg,
+     'width': int(w), 'height': int(h),
+     'steps': int(steps), 'seed': int(seed)}
+if preset: d['cpu_preset'] = preset
+open(path, 'w').write(json.dumps(d))
 PY
 
   curl -s -m 60 -X POST "$URL/generate" -H 'Content-Type: application/json' \
@@ -170,14 +178,15 @@ do_batch() {
   echo "[*] 批量: $N 条 prompt -> $URL"
   check || exit 1
 
-  python3 - "$FILE" "$URL" "$W" "$H" "$STEPS" "$OUTDIR" <<'PY'
+  python3 - "$FILE" "$URL" "$W" "$H" "$STEPS" "$OUTDIR" "${CPU_PRESET:-}" <<'PY'
 import sys, json, time, subprocess, os, urllib.request
-path, url, w, h, steps, outdir = sys.argv[1:7]
+path, url, w, h, steps, outdir, preset = sys.argv[1:8]
 prompts = [l.strip() for l in open(path) if l.strip() and not l.startswith('#')]
+body = {'prompts': prompts, 'n_per_prompt': 1,
+        'width': int(w), 'height': int(h), 'steps': int(steps)}
+if preset: body['cpu_preset'] = preset
 req = urllib.request.Request(
-    url + '/batch',
-    data=json.dumps({'prompts': prompts, 'n_per_prompt': 1,
-                     'width': int(w), 'height': int(h), 'steps': int(steps)}).encode(),
+    url + '/batch', data=json.dumps(body).encode(),
     headers={'Content-Type': 'application/json'})
 ids = json.load(urllib.request.urlopen(req))['ids']
 print(f'[+] 入队 {len(ids)} 张，预计约 {len(ids) * 30 / 60:.0f} 分钟')

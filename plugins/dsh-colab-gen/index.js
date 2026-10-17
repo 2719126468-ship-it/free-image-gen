@@ -133,6 +133,19 @@ const PARAMETERS = {
     frames: { type: 'integer', description: 'video：帧数，默认 121（@24fps=5s）；降到 49 省一半时间。' },
     fps: { type: 'integer', description: 'video：帧率，Wan2.2 TI2V-5B 原生 24。' },
     image_path: { type: 'string', description: 'video：I2V 参考图（须是 Colab 端路径，一般由 upload 返回）。' },
+    cpu_preset: {
+      type: 'string',
+      enum: ['sana06', 'sdxl_lightning', 'sdxl_anime', 'animagine', 'sd15_lcm'],
+      description:
+        'CPU 档生图模型（GPU 档忽略此参数；权重体积为 HF repo 实测加总）：' +
+        'sana06 = SANA Sprint 0.6B DiT（默认，2.45GB，4 步 1024px，写实最好）；' +
+        'sdxl_lightning = dreamshaper-xl-lightning INT4（2.06GB，4 步 cfg2.0 ≤768px，SDXL 通用写实）；' +
+        'sdxl_anime = nova_xl_lcm INT4（2.06GB，8 步 cfg1.5 ≤1024px，SDXL 动漫向，你要的「2.7GB 那档」就是它）；' +
+        'animagine = animagine-xl-4.0-Lightning（实测 6.18GB，unet 只有 INT8、repo 名 INT4 是假的；' +
+        '4 步 guidance0 无 CFG，≤1024px，2vCPU 内存吃紧别用）；' +
+        'sd15_lcm = animemix v10 SD1.5 LCM INT4（0.90GB，8 步 cfg1.5 ≤512px，最小最快但画质天花板最低）。' +
+        '切换即重载模型（服务端有内存闸门，剩余 RAM 不够会直接报错而不是 OOM 崩会话）。',
+    },
     local_file: { type: 'string', description: 'upload：本地图文件路径，推给 Colab 供 I2V 使用。' },
     outdir: { type: 'string', description: `本地图/视频落盘目录，默认 ${DEFAULT_OUTDIR}。` },
     jid: { type: 'string', description: 'status：要查的 job id。' },
@@ -170,9 +183,14 @@ function renderText(value) {
   }
   if (value.action === 'health') {
     const h = value.health || {}
-    lines.push(h.gpu ? `档位: GPU  ${h.gpu_name} (${h.vram_gb}GB)` : '档位: CPU 档（走 OpenVINO SDXL-Lightning INT4 生图，4 步但慢）')
+    if (h.gpu) {
+      lines.push(`档位: GPU  ${h.gpu_name} (${h.vram_gb}GB)`)
+    } else {
+      lines.push(`档位: CPU 档（OpenVINO INT4，当前预设 ${h.cpu_preset || '?'}；可切 ${Array.isArray(h.cpu_presets) ? h.cpu_presets.join('/') : 'sana06/sdxl_lightning/animagine/sd15_lcm'}）`)
+    }
     lines.push(`队列: ${h.pending ?? '?'} 待处理 · 已建任务 ${h.jobs ?? 0} · 视频模型${h.video_loaded ? '已加载' : '未加载（按需下）'}`)
     if (value.url) lines.push(`URL: ${value.url}`)
+    if (h.cpu_error) lines.push(`CPU 模型错误: ${h.cpu_error}`)
     if (h.video_error) lines.push(`视频加载错误: ${h.video_error}`)
   } else if (value.local_path) {
     lines.push(`✔ 已下载到本机: ${value.local_path}`)
@@ -209,6 +227,7 @@ async function doGenerate(baseUrl, args, signal) {
     seed: Number.isFinite(args.seed) ? args.seed : Math.floor(Math.random() * 100000),
   }
   if (args.negative) payload.negative = args.negative
+  if (!isVideo && args.cpu_preset) payload.cpu_preset = args.cpu_preset
   if (isVideo) {
     payload.frames = args.frames || 121
     payload.fps = args.fps || 24
@@ -272,6 +291,7 @@ async function run(args, signal) {
         seed: Number.isFinite(args.seed) ? args.seed : 1000,
       }
       if (args.negative) body.negative = args.negative
+      if (args.cpu_preset && body.kind !== 'video') body.cpu_preset = args.cpu_preset
       const r = await httpJson(`${baseUrl}/batch`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
       }, 60000)
