@@ -211,6 +211,9 @@ HORDE_USE_KEY=1 python3 scripts/horde_img2img.py <ref> <out.webp> "<prompt>" "<n
       （gw2api 二进制就绪 + DNS 已用 proot 修好，纯等 Cookie）
 - [ ] **新发现待核实**：Device key（credentials.json）能付 kontext-pro edits 费，余额还有 4.72 pollen；
       但 pollen 是 7 天设备预算（10-24 到期），用不用、怎么用由用户拍板，**先问再烧**
+- [ ] **新池调研**（docs/new-pools-research.md，2026-10-17）：Gemini API 图像无免费档（只能 web Cookie）；
+      HF router 免费面 2026-10-08 已死（PRO $9/月 = $2 credits + 8× ZeroGPU）；Replicate 匿名 401；
+      Together 无免费试用。**待用户拍板**：quest 手动 claim（回血 2–3 pollen）、HF PRO、注册 fal/Novita/getimg
 - [ ] **Perchance**：如需再战，用 EzSolver + 真 Chrome（或 termux-x11）
 - [ ] 公益站注册（需用户提供邮箱/邀请码）：moyuu.cc / vsllm.com / freeapi.dgbmc.top / aotera.cc
 - [ ] 已排除：InferencePort（401）、Craiyon（连接失败）、DeepInfra/Together/HF 匿名（要 key）、
