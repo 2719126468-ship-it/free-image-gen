@@ -103,21 +103,30 @@ predict(input_image, prompt, seed, randomize_seed, guidance_scale, steps, api_na
 
 ---
 
-## 四、【零门槛】fal.ai Sandbox —— 15 次/天，无需账户
+## 四、【零门槛】fal.ai Sandbox —— 15 次/天，但只能网页手动（程序化需 Key）
 
 本机抓取页面原文（`fal.ai/sandbox`）：
 
 > **"15 free generations today. No account needed."**
 > 示例含 **Edit Multi Images**（4 models，图生图编辑）。
 
-- 认证：Sandbox **匿名**即可，每天 15 次
-- img2img：✅ 示例即 `nano-banana-2/edit`、`gpt-image-2/edit` 类调用
-- 限制：Sandbox 是 UI 导向，**程序化调用需正式 API Key**；正式免费额度数字官方未标（第三方说法不统一，未核实）
-- Termux：纯 HTTP / `fal-client`
+**本机实测（关键，推翻了「匿名可编程」的乐观判断）**：
+
+```
+POST https://fal.run/fal-ai/nano-banana-2/edit   （匿名，带 image_urls）
+→ 401 {"detail":"Cannot access application \"fal-ai/nano-banana-2\". Authentication is required to access this application."}
+```
+
+页面内部字段也印证：`sandboxGuestRequest` / `sandboxSkipBilling` / `sandbox-free-credits-experiment`
+都是**前端 UI 会话**里的标记（每条记录 `"sandboxGuestRequest":false`），不是公开 API 的免认证开关。
+
+- img2img：✅ Sandbox UI 里确实能编辑（`fal-ai/nano-banana-pro/edit`、`fal-ai/nano-banana-2/edit` 都在模型表里）
+- 程序化：❌ **匿名 REST 一律 401**，必须注册拿 API Key
+- 注册赠金：官方 pricing 页未标注，第三方说法不统一，**未核实**
 
 > 来源：[fal.ai Sandbox](https://fal.ai/sandbox)｜[fal.ai pricing](https://fal.ai/pricing)
 
-**用法建议**：网页上手动试 15 次/天够验证效果；要脚本化就得注册（注册赠金未核实）。
+**用法建议**：15 次/天只能在浏览器里手动点。要脚本化必须先注册。
 
 ---
 

@@ -18,12 +18,16 @@
 ```
 ~/free-image-gen/
 ├── MEMORY.md              ← 本文件
-├── README.md              ← 五条路线速览
-├── docs/routes.md         ← 完整实测调研（12 节，权威）
+├── README.md              ← 路线速览（txt2img + img2img 两张表）
+├── docs/
+│   ├── routes.md          ← 完整实测调研（12 节，权威）
+│   └── new-pools-research.md ← 新池调研（含被实测推翻的 3 条传言）
 └── scripts/
+    ├── vercel_img.py      ← ★★ Vercel AI Gateway img2img（$5/30天免费，kontext-pro）
+    ├── replicate_edit.py  ← ★ Replicate Try-for-Free img2img（有限次数）
     ├── pol_anon.py        ← ★ 匿名档文生图（零 key）
     ├── pol_edit.py        ← ★ 新版 API img2img（pollen key）
-    ├── horde_img2img.py   ← ★ Horde img2img（免费，排队久）
+    ├── horde_img2img.py   ← ★ Horde img2img（免费无审查，排队久）
     ├── horde_gen.sh       ← Horde 文生图（多模型轮换）
     ├── perchance_gen.py   ← Perchance 逆向（卡 Turnstile）
     ├── kontext_edit.py    ← HF router kontext（已 402 无额度）
@@ -61,12 +65,17 @@
 
 | 路线 | 认证 | 文生图 | **img2img** | 速度 | 额度 | 审核 |
 |---|---|---|---|---|---|---|
-| **Pollinations 匿名** `pol_anon.py` | 无 | ✅ | ❌ **已证伪** | 1–5s | 1张/45s/IP | 无 |
+| **Vercel AI Gateway** `vercel_img.py` | Vercel 账号（免费不绑卡） | ✅ | ✅ **kontext-pro** | 20–60s | **$5/30天循环 ≈125张** | 商业标准 |
+| **Replicate Try-for-Free** `replicate_edit.py` | Replicate 账号（免费） | ✅ | ✅ kontext-pro | 20–60s | 有限次数 | 商业标准 |
+| **AI Horde** `horde_img2img.py` | 匿名 `0000000000` | ✅ | ✅ `source_image` | **45s–21min** | 无限 | **无** |
 | **Pollinations 新版** `pol_edit.py` | pollen key | ✅ | ✅ **kontext-pro** | 20–40s | 0.03 pollen/张 | **松** |
-| **AI Horde** `horde_img2img.py` | 匿名 `0000000000` | ✅ | ✅ `source_image` | **4–21min** | 无限 | **无** |
+| **Pollinations 匿名** `pol_anon.py` | 无 | ✅ | ❌ **已证伪** | 1–5s | 1张/45s/IP | 无 |
 | Gemini web 反代 | Gemini Cookie | ✅ | ✅ | 快 | 普号免费 | **禁 NSFW** |
-| HF ZeroGPU `anima_gen.sh` | HF token | ✅ | — | 1–10s | 5min GPU/天 | 无 |
+| HF ZeroGPU `anima_gen.sh` | HF token | ✅ | — | 1–10s | 5min GPU/天（已耗尽） | 无 |
 | Cloudflare `gen_image.sh cf` | API token | ✅ | — | 5–15s | ~50张/天 | 有过滤 |
+| HF Inference router | HF token | ❌ | ❌ **402 免费额度已取消** | — | 2026-10-08 起无 | — |
+| HF Spaces ZeroGPU Kontext | 匿名/token | — | ❌ **额度封顶** | — | 需 PRO | — |
+| Gemini 官方 API | API key | ❌ | ❌ **图像无免费档** | — | $0.0336/张起 | 严 |
 | Perchance | 无 | ⚠️ 卡 Turnstile | — | — | 无限 | 无 |
 | TensorHub | 无 | ⚠️ 已用尽 | — | — | 2 次 | 无 |
 
@@ -211,9 +220,17 @@ HORDE_USE_KEY=1 python3 scripts/horde_img2img.py <ref> <out.webp> "<prompt>" "<n
       （gw2api 二进制就绪 + DNS 已用 proot 修好，纯等 Cookie）
 - [ ] **新发现待核实**：Device key（credentials.json）能付 kontext-pro edits 费，余额还有 4.72 pollen；
       但 pollen 是 7 天设备预算（10-24 到期），用不用、怎么用由用户拍板，**先问再烧**
-- [ ] **新池调研**（docs/new-pools-research.md，2026-10-17）：Gemini API 图像无免费档（只能 web Cookie）；
-      HF router 免费面 2026-10-08 已死（PRO $9/月 = $2 credits + 8× ZeroGPU）；Replicate 匿名 401；
-      Together 无免费试用。**待用户拍板**：quest 手动 claim（回血 2–3 pollen）、HF PRO、注册 fal/Novita/getimg
+- [ ] **★ 下一步：Vercel AI Gateway**（`scripts/vercel_img.py`，已写好待 key）
+      用户注册 vercel.com（**免费、别绑卡**）→ Dashboard → AI Gateway → API Keys → Create
+      → `echo 'AI_GATEWAY_API_KEY=vck_...' > ~/.dsh/.vercel-gw-key && chmod 600`
+      → 即可 $5/30 天循环跑 `bfl/flux-kontext-pro`（≈125 张/月），彻底摆脱 pollen 焦虑
+- [ ] **Replicate Try-for-Free**（`scripts/replicate_edit.py`，已写好待 token）
+      注册 replicate.com → api-tokens → `~/.dsh/.replicate-token`，白嫖 kontext-pro 有限次数
+- [ ] **新池调研结论**（docs/new-pools-research.md）：
+      ❌ 已死：HF Inference 免费额度（2026-10-08 取消，402）、HF Spaces ZeroGPU（额度封顶）、
+      Gemini 官方 API 图像（无免费档）、Together（无试用）、fal 匿名 API（401，只能网页手动 15 次/天）
+      ✅ 可用：Vercel $5/月、Replicate 免费集合、AI Horde、Pollinations 匿名
+      待用户拍板：quest 手动 claim（回血 2–3 pollen）、HF PRO $9/月（$2 credits + 8× ZeroGPU）
 - [ ] **Perchance**：如需再战，用 EzSolver + 真 Chrome（或 termux-x11）
 - [ ] 公益站注册（需用户提供邮箱/邀请码）：moyuu.cc / vsllm.com / freeapi.dgbmc.top / aotera.cc
 - [ ] 已排除：InferencePort（401）、Craiyon（连接失败）、DeepInfra/Together/HF 匿名（要 key）、
