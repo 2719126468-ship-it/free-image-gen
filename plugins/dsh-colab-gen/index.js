@@ -221,9 +221,9 @@ async function doGenerate(baseUrl, args, signal) {
   const payload = {
     kind,
     prompt: args.prompt || '',
-    width: args.width || (isVideo ? 1280 : 512),
-    height: args.height || (isVideo ? 704 : 768),
-    steps: args.steps || (isVideo ? 50 : 16),
+    width: args.width || (isVideo ? 1280 : 832),
+    height: args.height || (isVideo ? 704 : 1216),
+    steps: args.steps || (isVideo ? 50 : 28),
     seed: Number.isFinite(args.seed) ? args.seed : Math.floor(Math.random() * 100000),
   }
   if (args.negative) payload.negative = args.negative
@@ -285,9 +285,9 @@ async function run(args, signal) {
         prompts: list,
         n_per_prompt: args.n_per_prompt || 1,
         kind: args.kind === 'video' ? 'video' : 'image',
-        width: args.width || 512,
-        height: args.height || 768,
-        steps: args.steps || 16,
+        width: args.width || 832,
+        height: args.height || 1216,
+        steps: args.steps || 28,
         seed: Number.isFinite(args.seed) ? args.seed : 1000,
       }
       if (args.negative) body.negative = args.negative

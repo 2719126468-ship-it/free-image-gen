@@ -25,7 +25,7 @@ OUTDIR="${OUTDIR:-/sdcard/Download}"
 NEG='worst quality, low quality, score_1, score_2, score_3, artist name, blurry, jpeg artifacts, chromatic aberration'
 
 # tunables (override via env)
-W="${W:-512}"; H="${H:-768}"; STEPS="${STEPS:-16}"
+W="${W:-832}"; H="${H:-1216}"; STEPS="${STEPS:-28}"
 VW="${VW:-1280}"; VH="${VH:-704}"; VSTEPS="${VSTEPS:-50}"; FRAMES="${FRAMES:-121}"; VFPS="${VFPS:-24}"
 
 usage() {
@@ -39,7 +39,7 @@ usage: colab_gen.sh "prompt" [url] [outdir] [seed] [w] [h] [steps]
 url: https://xxxx.trycloudflare.com  (printed by notebook cell 4)
      or stored in $URLFILE
 
-env: W H STEPS (图, 默认 512x768/16 = T4 fp32 实测稳档)
+env: W H STEPS (图, 默认 832x1216/28 = animagine fp16 实测 ~30s)
      VW VH VSTEPS FRAMES VFPS (视频, 默认 1280x704/50/121帧/24fps)
      COLAB_URL OUTDIR
      CPU_PRESET  CPU 档模型: sana06(默认) | sdxl_lightning | sdxl_anime(2.06GB 动漫SDXL)
