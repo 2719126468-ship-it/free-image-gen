@@ -126,3 +126,23 @@
 | `th_gen.sh` | TensorHub 免登录（匿名 2 次已用尽） |
 
 `gen_quota.sh` 的一个已知限制：Cloudflare GraphQL 的 `neurons` 字段已废弃（返回 `unknown field "neurons"`），`aiInferenceAdaptiveGroups` 的 filter 形状也变了，所以改为**实发一张 4 步最小图**来判定剩余额度——代价是消耗约 189 neurons。
+
+## 八、非 ZeroGPU 的 HF Space（用户假设，2026-10-17 实测证实）
+
+**假设**：HF Spaces 里跑在普通 CPU / 所有者自购 GPU 上的 gradio Space 不消耗访问者的 ZeroGPU 配额。
+**验证前提**：本机 HF 账号 `elysia20` 的 ZeroGPU 额度当天已归零（对照组 `IbarakiDouji/WAI-NSFW-illustrious-SDXL`，`zero-a10g`，返回 `event: error / data: null`）。
+
+**扫描方法**：HF API `GET /api/spaces/{id}` 的真实字段是 `runtime.hardware.current`（不是 `type`），值域 `zero-a10g` / `cpu-basic` / `cpu-upgrade`。用 26 个关键词搜出 625 个候选，16 并发查 runtime。
+
+**分布**：134 个 `zero-a10g`、63 个 `cpu-basic`、1 个 `cpu-upgrade`、411 个无 runtime（多为已停用/未构建）。
+
+**RUNNING 且非 zero 的可用 Space（64 个），已验证有干净文生图 API 的**：
+| Space | hardware | 端点 | 参数 | 说明 |
+|---|---|---|---|---|
+| `ClickyGPT/NSFW_Z-Image-Turbo` | cpu-basic | `/infer` | prompt,neg,seed,rand,w,h,guid,steps | NSFW + Z-Image-Turbo |
+| `dhead/ntr-mix-illustrious-xl-noob-xl-xiii-sdxl_space` | cpu-basic | `/infer` | 同上 8 参 | Illustrious 动漫混合 |
+| `DreamAngel/t2i_illustrious_pencil-XL` | cpu-basic | `/infer` | 8 参 + sampler_name | Illustrious |
+| `Manjushri/SDXL-Turbo-Img2Img-CPU` | cpu-basic | `/predict` | source_img,prompt,steps,seed,strength | 图生图（img2img） |
+| `linoyts/scribble-sdxl-flash` | cpu-basic | `/run` | image,prompt,neg,style,steps,guid,cn,seed,hed,canny | 涂鸦/线稿生图 |
+
+**结论**：假设成立——这些 Space 用 `event_id` 提交成功且不报 ZeroGPU 配额错误，与额度归零时立即失败的 zero-a10g Space 形成对照。**代价**：cpu-basic 出图慢（分钟到十几分钟级），且 Space 可能随时被所有者下线或改成 ZeroGPU。脚本 `gradio_space_gen.py` 封装了通用 gradio 两步调用（submit→SSE 轮询→下载）。
