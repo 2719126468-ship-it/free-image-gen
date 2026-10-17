@@ -225,3 +225,59 @@
 - 匿名档 = **免费纯文生图**，45s/张，质量中等（sana 后端）。
 - **img2img / 参考图编辑在匿名档不可用**；需要 img2img 只有两条路：① pollen key + `gen.pollinations.ai/v1/images/edits`（kontext-pro 0.03/张）；② AI Horde 的 `source_image` + `source_processing=img2img`（免费但要排队 4–13 分钟）。
 - 脚本：`scripts/pol_anon.py <out.jpg> "<prompt>" [model] [w] [h] [seed]`（内置 402 自动等待重试）。
+
+## 十二、Gemini web 端反代（最强免费 img2img 候选，待 Cookie）
+
+> 2026-10-17 调研。**核心优势：普号免费、支持图片生成 + 图片编辑（img2img）、OpenAI 兼容、有现成开源网关。**
+
+### 原理
+把 `gemini.google.com` 的网页/App 端反代成 OpenAI 兼容 API。**只需 Gemini 账号 Cookie**（`__Secure-1PSID` + `__Secure-1PSIDTS`），不需要官方 API key，不需要付费。
+
+### 现成项目
+| 项目 | 作用 | 地址 |
+|---|---|---|
+| **gemini-api-oneclick** | 一键部署多账号网关 + 管理面板 + 创作工作室（生图/视频/音乐/编辑） | `github.com/shleeshlee/gemini-api-oneclick` |
+| **gemini-image** | SillyTavern 生图插件（41 种风格 + 风格解析） | `github.com/shleeshlee/gemini-image` |
+| **gemini-webapi** | 底层 Python 库（PyPI 2.1.1，本机已装） | `pypi.org/project/gemini-webapi` |
+| **gemini-web2api-go** | Go 单二进制反代，Chrome TLS 指纹 + cookie 池 + 代理池 | `github.com/zexadev/gemini-web2api-go` |
+
+### API 端点（网关 :9880）
+| 端点 | 说明 |
+|---|---|
+| `POST /v1/images/generations` | **图片生成 / 编辑（支持素材上传 = img2img）** |
+| `POST /v1/chat/completions` | 聊天（OpenAI 兼容，流式） |
+| `POST /v1/videos/generations` | Veo 视频 |
+| `POST /v1/music/generations` | Lyria 音乐 |
+| `POST /v1/tasks/create` + `GET /v1/tasks/{id}/stream` | 并行任务 + SSE |
+
+- 认证：`Authorization: Bearer <自设 API 密钥>`
+- 生图超时：容器 300s / Gateway 180s，客户端建议 ≥120s
+
+### 本机实测进度
+| 步骤 | 结果 |
+|---|---|
+| `gemini.google.com` 连通性 | ✅ HTTP 200 |
+| `gemini-webapi` 2.1.1 安装 | ✅（`--no-deps` 装 wheel） |
+| `orjson` | ❌ Termux 需编译 → 已写纯 stdlib `json` shim 到 site-packages |
+| `loguru` | ✅ pip 安装成功 |
+| `pydantic>=2` | ⏳ Termux 编译慢，安装中 |
+| **Cookie** | ❌ **缺**——需要用户在浏览器登录 gemini.google.com 后导出 `__Secure-1PSID` / `__Secure-1PSIDTS` |
+
+### 限制（重要）
+- **无法生成 NSFW**：`flash 可生图，出图质量由 gemini 负责，限制很多。尤其是无法生成 nsfw 图片`（项目作者原话）
+- 有配额（免费号 5 小时/每周用量条，面板可见）
+- 需要 VPS 或本机常驻网关；Termux 上可直接跑 Python 版
+
+### 落地步骤（拿到 Cookie 后）
+```bash
+# 1. 装网关
+git clone https://github.com/shleeshlee/gemini-api-oneclick
+cd gemini-api-oneclick && bash scripts/install.sh   # 选 worker 架构
+
+# 2. 面板 :9880 填入 __Secure-1PSID + __Secure-1PSIDTS
+
+# 3. 调用 img2img
+curl -X POST http://127.0.0.1:9880/v1/images/generations \
+  -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \
+  -d '{"prompt":"把尾巴换成两条人腿","image":"<base64>","model":"gemini-flash"}'
+```
