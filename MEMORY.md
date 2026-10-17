@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-17（第 2 次修订：停烧额度 + Device key 发现 + Horde 黑图破案）
+> 最后更新：2026-10-18 凌晨（第 3 次修订：**新增 4.7 Colab 远程生成线**——三面墙实测 + 速度表 + 当前状态）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -12,7 +12,7 @@
 - **运行环境**：Android 10 + Termux（无 root，arm64，Python 3.14，无 GPU）
 - **Git 仓库**：`~/free-image-gen`，远程 `github.com/2719126468-ship-it/free-image-gen`，分支 `main`，**每轮任务结束必须 commit + push**
 - **核心文档**：`docs/routes.md`（所有实测结论、错误原文、配额机制，1–12 节）
-- **当前 HEAD**：`ada9b34`
+- **当前 HEAD**：`1031eb5`（Colab notebook 一次成型版 + cell4 幂等化）
 
 ### 目录结构
 ```
@@ -21,7 +21,14 @@
 ├── README.md              ← 路线速览（txt2img + img2img 两张表）
 ├── docs/
 │   ├── routes.md          ← 完整实测调研（12 节，权威）
-│   └── new-pools-research.md ← 新池调研（含被实测推翻的 3 条传言）
+│   ├── new-pools-research.md ← 新池调研（含被实测推翻的 3 条传言）
+│   ├── colab-free-tier-reality.md / colab-t4-fix.md / cpu-tier-model-matrix.md
+│   │                       ← Colab 线专项：免费档现实 / T4 修复史 / CPU 模型矩阵
+│   └── new-sources-2026-10-17.md
+├── examples/
+│   └── anima_colab.ipynb  ← ★ Colab 一次成型版（9 格，GPU 三档 + CPU 五预设 + 视频）
+├── plugins/
+│   └── dsh-colab-gen/     ← ★ DSH 插件（工具名 colab_gen，已装 web profile；改码需重启会话）
 └── scripts/
     ├── vercel_img.py      ← Vercel AI Gateway img2img（**需绑卡**，实测 403，封存待用）
     ├── replicate_edit.py  ← ★ Replicate Try-for-Free img2img（有限次数）
@@ -182,6 +189,61 @@ HORDE_USE_KEY=1 python3 scripts/horde_img2img.py <ref> <out.webp> "<prompt>" "<n
 - 文本模型 **0 余额也能用**（`openai/gpt-oss-20b` 实测成功）
 - 设备流：`polli auth login` → 生成 Device key（5 pollen 预算、7 天有效）
 
+### 4.7 Google Colab 远程生成线（2026-10-18 深夜整晚实测，当前主力）
+
+**架构**：`examples/anima_colab.ipynb`（Flask + cloudflared quick tunnel）+ 本机两个客户端：
+`scripts/colab_gen.sh`（CLI）与 `colab_gen` DSH 插件（`plugins/dsh-colab-gen/`，已 install 到 web profile）。
+隧道地址存 `~/.dsh/.colab-url`，每次 runtime 重启后 cell 4 出**新随机子域**，必须重新存。
+
+#### 三面墙（全部实测坐实，别再撞）
+
+| 墙 | 数值 | 后果 | 绕法 |
+|---|---|---|---|
+| RAM | **12.6GB**（免费档标准值，25.2 是含显存口径） | CPU 里凑 fp32 权重（13.6GB）→ **kernel 被杀**（日志特征：`AsyncIOLoopKernelRestarter: restarting kernel`） | CPU 里永远只放 fp16 一份（~7GB），升精度在 GPU 上原地 `.to()` |
+| VRAM | **14.56GB**（报 15） | Anima fp32 权重 13.6GB 上卡 → 剩 <1GB → 640×960 以上必 OOM | 换 fp16 模型（SDXL 系 fp16 只占 ~7GB） |
+| 精度 | **T4 无 bf16/fp8** | Anima(Cosmos bf16 训练)转 fp16 → 激活值超 65504 → inf/NaN → **100% 纯黑图**（mean=0，文件 ~1.8KB） | Anima 在 T4 只能 fp32；要快就换 SDXL 底 |
+
+**黑图判定**：`np.asarray(img).mean() < 6` 即黑图（服务端 render_image 已内置，黑图直接报错不返回）。
+
+#### 实测速度表（T4，全部真图）
+
+| 模型 | 配置 | 耗时 | 备注 |
+|---|---|---|---|
+| **animagine-xl-4.0 fp16** | 832×1216 @28 | **30s** | ✅ 当前 GPU 默认档，动漫天花板 |
+| animagine-xl-4.0 fp16 | 1024×1024 @28 | 32s | |
+| Anima fp32 | 512×768 @16 | 64s | 长宽比正常 |
+| Anima fp32 | 512×512 @16 | 40s | |
+| Anima fp32 | 640×960 @22 | 202s | 含 2 次 OOM 降档白烧，别用 |
+| Anima 全 fp16 / hybrid | 任意 | 快但**黑图** | 硬件墙，见上表 |
+| OpenVINO CPU 档 | sana06 等 5 预设 | 分钟级 | 2vCPU，官方跑分÷90 |
+
+#### notebook 演进结论（HEAD `1031eb5`，9 格一次成型版）
+
+- cell 3：`GPU_MODEL` 三档开关（animagine 默认 / nova_lcm 8步极速 / anima fp32 慢速），加载后自动 512 测试图防黑图
+- cell 4：幂等（重跑不报端口占用/坏二进制）；单 worker 串行队列（并发必 OOM）；OOM 自动 x0.8 降档重试；结果落盘不留内存
+- 已踩过的代码坑：`load_components(torch_dtype=)` 和 `torch_dtype=` 被新版 diffusers **静默忽略**（认 `dtype=`）；事后 `.half()` 逐组件转会 dtype 记账错乱出黑图；回退时二次 `from_pretrained` 爆 RAM
+- **Colab 的 F5 不会重拉 GitHub 内容**——改了 notebook 必须 File→Open notebook→GitHub 开新副本，或在 URL 里换 commit hash 强刷。旧标签页跑旧代码 = 一切白改
+
+#### 客户端 API（notebook cell 4 起的 Flask）
+
+```
+GET  /health          档位/gpu_model/队列/cpu_presets
+POST /generate        {prompt,kind:image|video,width,height,steps,seed,cpu_preset}
+POST /batch           {prompts:[],n_per_prompt,...}  入队串行消化
+GET  /status/<jid>    queued|running|done|error(+seconds,path,bytes)
+GET  /result/<jid>    拉 PNG/MP4（/image/<jid> 同义）
+POST /upload          multipart file → Colab 端路径（I2V 参考图用）
+GET  /flush           产出搬 Drive
+```
+DSH 插件工具名 `colab_gen`（action 同名）。**插件代码改了要重启 dsh 会话才生效**（Node 模块缓存）。
+
+#### 当前状态（2026-10-18 04:00 左右）
+
+- ⚠️ **GPU 配额耗尽**：Colab 现在只给 CPU 档。恢复靠时间（一般次日）或错峰（国内清早概率高）
+- 隧道 `internal-parks-detective-plant` 已死（Flask 500 后 runtime 重启），`~/.dsh/.colab-url` 是旧地址，重开 notebook 后要更新
+- animagine-xl-4.0 权重（6.94GB）下载过一次，同 runtime 内免重下；runtime 没了要重下 ~8 分钟
+- **下一步**：CPU 档先跑 sana06 出图（notebook 自动分流，客户端无感）；GPU 恢复后切回 animagine 30s/张
+- 视频（Wan2.2 TI2V-5B）从未实测成功，权重 10-20GB 会加剧 RAM/时间压力，**优先级放后**
 ---
 
 ## 五、凭据清单（全部 600 权限，**绝不 commit**）
@@ -228,6 +290,10 @@ HORDE_USE_KEY=1 python3 scripts/horde_img2img.py <ref> <out.webp> "<prompt>" "<n
 
 ## 八、待办 / 下一步
 
+- [ ] **★ Colab 线（当前主力）**：GPU 配额耗尽中，恢复后：
+      ① 新标签页开 notebook（File→Open notebook→GitHub，别用旧标签）② 跑 1→2→3→4
+      ③ 新 URL 更新 `~/.dsh/.colab-url` ④ cell 5 自测一张 832×1216@28（应 ~30s）⑤ cell 6 批量
+      CPU 档期间也能用：notebook 自动分流 OpenVINO sana06（慢，分钟级/张）
 - [ ] **创作任务**：等用户在现有 9 张候选里选方向（k2/k6/k7 + fix_A/B/C + pose_P1/P2/P3），
       **不再自行生成新图**；用户点名要哪个方向再动 pollen
 - [x] **Horde PonyXL md5 相同排查**：已破案 —— PonyXL worker 确定性渲染（clip_skip=2+固定seed），
