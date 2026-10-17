@@ -6,7 +6,8 @@
 
 | 路线 | 认证 | 额度 | NSFW | 速度 | 质量 | 验证方式 |
 |---|---|---|---|---|---|---|
-| **Pollinations** `pol_gen.sh` | **无 key** | 1 张/45s/IP | 可关 | **~9s** | 中（sana 引擎，带水印） | ✅ 端到端出图 |
+| **Pollinations Classic** `pol_gen.sh` | **无 key** | 1 张/45s/IP | 可关 | **~9s** | 中（只有 sana，带水印） | ✅ 端到端出图 |
+| **Pollinations 新版** `pol_edit.py` | pollen key `sk_...` | 按 pollen 计费（kontext-pro 0.03/张） | **kontext/klein 无审查** | 20-40s | **高**（真 img2img 编辑） | ✅ 端到端出图 |
 | **AI Horde** `horde_gen.sh` | 匿名 `apikey: 0000000000` | 无限量但受 worker 容量压制 | **无审查** | **8-15min**（当前低谷，见下） | 中高（SDXL/Illustrious） | ✅ 端到端出图 |
 | **HF ZeroGPU** `anima_gen.sh` | HF token + `X-HF-Authorization` | 5 min GPU/天（PRO 40 min） | 无审查 | 1-10s | **最高**（Anima-2.9B） | ✅ 出图 + 触限 |
 | **Cloudflare** `gen_image.sh cf` | API token | 10k neurons/天 ≈ 50 张 | **有过滤** | 5-15s | 高（flux） | ✅ 出图 + 触限 |
@@ -18,7 +19,9 @@
 | Krea | 需 workspace owner | **无免费档** | 未知 | 快 | 高 | ❌ 纯付费 |
 | InferencePort (`sharktide-lightning.hf.space`) | 需 API key | 图 ~10/天 | 无审查 | 快 | 高（flux-2-pro/gpt-image/seedream） | ❌ `/v1/models` 公开但生图端点 401 |
 
-**结论：当前时刻（worker 低谷）唯一稳定可用的零 key 主力是 Pollinations（9s/张，45s 限流）；AI Horde 无限量但受全网仅 16 台图像 worker 的容量压制，实测等待 8-15 分钟；规模化高质量仍需等 Colab 配额恢复或 ZeroGPU 日额度刷新。**
+**结论：零 key 主力仍是 Pollinations Classic（9s/张，45s 限流）；AI Horde 无限量但受全网仅 16 台图像 worker 的容量压制，实测等待 8-15 分钟。**
+
+**当前质量最高的一条：`pol_edit.py` + `black-forest-labs/flux.1-kontext-pro` —— 实测唯一同时满足「审核松 + 解剖清晰 + 锁住原图构图」的 img2img 路线，见第九节。**
 
 ---
 
