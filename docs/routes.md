@@ -203,3 +203,25 @@
 - **卡点**：verifyUser 需要真实过 Turnstile（sitekey `0x4AAAAAAAA8g8NphwaSOT59`）。Termux `chromium --headless=new` 加载页面但 body 停在 `{"status":"failed_verification","reason":"token_required"}`——headless 不会自动解 widget。
 - **可行解**（未完）：SeleniumBase UC Mode、或本机可见浏览器（AI 浏览器工作台）过一次 Turnstile 抓 userKey。
 - 脚本：`scripts/perchance_gen.py`（ad code 部分已跑通）。
+
+## 十一、Pollinations 匿名档（2026-10-17 复测，重大更新）
+
+### 可用性
+| 项 | 实测 |
+|---|---|
+| `GET https://image.pollinations.ai/prompt/{prompt}` | ✅ **无需 key，无需 token，真实生成** |
+| 限流 | **1 张 / 45s / IP**（402 `FREE_LIMIT`，带 `Retry after Ns`） |
+| 匿名可用模型 | `flux` / `turbo` / `sana`（三者实际都回落到 sana 后端，Exif 里 manufacturer=sana） |
+| 匿名 403 模型 | `kontext` / `nanobanana` / `seedream`（需 pollen key） |
+| 尺寸 | 支持 1024×1024（实测 72KB JPEG）；768×768 / 512×512 均可 |
+| 速度 | 1–5 秒 |
+
+### 关键坑（实测证伪）
+1. **`POST /prompt/x` + JSON body 是假的**——无论 prompt/seed/image 是什么，**恒定返回同一张 82581B 占位图**（md5 `58cae173c73d139a735241143aeb4980`，768×768）。不要用 POST。
+2. **`image` 参数在匿名 GET 上不生效**——A/B 对照（同 prompt 同 seed，一个带 `image=<url>` 一个不带）像素差 **0.00/255，0% 像素变化**，md5 不同仅是 JPEG 编码噪声。**匿名档没有 img2img**。
+3. 首次请求可能命中缓存返回旧图；用随机 seed + 唯一 prompt 才能拿到真实新图。
+
+### 结论
+- 匿名档 = **免费纯文生图**，45s/张，质量中等（sana 后端）。
+- **img2img / 参考图编辑在匿名档不可用**；需要 img2img 只有两条路：① pollen key + `gen.pollinations.ai/v1/images/edits`（kontext-pro 0.03/张）；② AI Horde 的 `source_image` + `source_processing=img2img`（免费但要排队 4–13 分钟）。
+- 脚本：`scripts/pol_anon.py <out.jpg> "<prompt>" [model] [w] [h] [seed]`（内置 402 自动等待重试）。
