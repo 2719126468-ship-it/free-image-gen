@@ -42,7 +42,8 @@ url: https://xxxx.trycloudflare.com  (printed by notebook cell 4)
 env: W H STEPS (图, 默认 832x1216/25)
      VW VH VSTEPS FRAMES VFPS (视频, 默认 1280x704/50/121帧/24fps)
      COLAB_URL OUTDIR
-     CPU_PRESET  CPU 档模型: sana06(默认,更小SDXL级) | sdxl_lightning | animagine | sd15_lcm
+     CPU_PRESET  CPU 档模型: sana06(默认) | sdxl_lightning | sdxl_anime(2.06GB 动漫SDXL)
+                 | animagine(6.18GB 重) | sd15_lcm(0.90GB 最快)
 
 video: 首次会触发 Colab 端下载 Wan2.2 权重(~10-20GB)；ref_image 走图生视频(I2V)
 EOF
@@ -84,11 +85,12 @@ show_health() {
 import json, sys
 d = json.load(open(sys.argv[1]))
 gpu = d.get('gpu')
-presets = '/'.join(d.get('cpu_presets', [])) or 'sana06/sdxl_lightning/animagine/sd15_lcm'
+presets = '/'.join(d.get('cpu_presets', [])) or 'sana06/sdxl_lightning/sdxl_anime/animagine/sd15_lcm'
 if gpu:
     print(f"档位    : GPU - {d.get('gpu_name')} {d.get('vram_gb')}GB")
 else:
-    print(f"档位    : CPU 档（OpenVINO INT4，当前预设 {d.get('cpu_preset', '?')}；可切 {presets}）")
+    print(f"档位    : CPU 档（OpenVINO 蒸馏，当前预设 {d.get('cpu_preset', '?')}"
+          f" 权重 {d.get('cpu_weight_gb', '?')}GB，可用内存 {d.get('ram_free_gb', '?')}GB；可切 {presets}）")
 print(f"url     : {sys.argv[2]}")
 print(f"队列    : {d.get('pending', d.get('queue', '?'))} 待处理 · 已建任务 {d.get('jobs', 0)} 个")
 print(f"视频模型: {'已加载' if d.get('video_loaded') else '未加载（首次请求视频时才下 ~10-20GB）'}")
@@ -98,8 +100,13 @@ if d.get('cpu_error'):
 if d.get('video_error'):
     print(f"视频错误: {d.get('video_error')}")
 if not gpu:
-    print("\n提示: CPU 档默认 sana06（SANA 0.6B，比 SDXL 更小更快），首张先下 2.3GB 权重。")
-    print("      切档: CPU_PRESET=sana06/sdxl_lightning/animagine/sd15_lcm，或改 notebook 第4格 CPU_PRESET。")
+    print("\n提示: CPU 档预设（权重体积为 HF repo 实测）：")
+    print("      sd15_lcm 0.90GB  SD1.5 LCM 8步  ≤512px  2vCPU 约 2-5 分钟/张（最快，画质矮）")
+    print("      sdxl_lightning 2.06GB SDXL 4步 cfg2.0 ≤768px 约 8-20 分钟/张（通用写实）")
+    print("      sdxl_anime 2.06GB SDXL-LCM 8步 cfg1.5 ≤1024px 约 15-30 分钟/张（动漫，你要的 2.7GB 那档）")
+    print("      sana06 2.45GB SANA 0.6B 4步 ≤1024px 写实最强（默认）")
+    print("      animagine 6.18GB SDXL 4步 guidance0 ≤1024px（repo 名 INT4 实为 INT8+FP32，2vCPU 易触发内存闸门）")
+    print("      切档: CPU_PRESET=<key>，或改 notebook 第4格 CPU_PRESET；内存不足服务端会直接报错。")
 PY
 }
 
