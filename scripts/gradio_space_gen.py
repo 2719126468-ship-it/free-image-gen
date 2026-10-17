@@ -27,15 +27,52 @@ def call(url, payload, headers, method='POST', timeout=90):
     r = urllib.request.Request(url, data=data, headers=headers, method=method)
     return urllib.request.urlopen(r, timeout=timeout)
 
+def upload(base, filepath, tok):
+    """Multipart upload a local file to a Gradio Space; returns the remote path.
+
+    Gradio file params must be passed as {'path': ..., 'url': ..., 'meta':
+    {'_type': 'gradio.FileData'}} in the call payload, not as a raw string.
+    """
+    import mimetypes, uuid
+    boundary = '----lcs' + uuid.uuid4().hex
+    ctype = mimetypes.guess_type(filepath)[0] or 'application/octet-stream'
+    name = os.path.basename(filepath)
+    head = (f'--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="{name}"\r\n'
+            f'Content-Type: {ctype}\r\n\r\n').encode()
+    body = head + open(filepath, 'rb').read() + f'\r\n--{boundary}--\r\n'.encode()
+    H = {'Content-Type': f'multipart/form-data; boundary={boundary}', 'User-Agent': 'lcs/1.0'}
+    if tok: H['X-HF-Authorization'] = 'Bearer ' + tok
+    r = urllib.request.Request(base + '/gradio_api/upload', data=body, headers=H)
+    resp = json.load(urllib.request.urlopen(r, timeout=180))
+    remote = resp[0] if isinstance(resp, list) else resp.get('path', '')
+    return remote
+
+def file_ref(remote):
+    return {'path': remote, 'url': None, 'size': None, 'orig_name': os.path.basename(remote),
+            'meta': {'_type': 'gradio.FileData'}}
+
 def main():
     sid, endpoint, out = sys.argv[1], sys.argv[2], sys.argv[3]
-    params = [coerce(p) for p in sys.argv[4:]]
+    params = sys.argv[4:]
     base = f'https://{subdomain(sid)}.hf.space'
     H = {'Content-Type': 'application/json', 'User-Agent': 'lcs/1.0'}
     tok = os.environ.get('HF_TOKEN')
     if tok:  # harmless on non-zero spaces, helps if the Space is gated
         H['X-HF-Authorization'] = 'Bearer ' + tok
     path = endpoint if endpoint.startswith('/') else '/' + endpoint
+
+    # A param of the form file:/local/path.jpg is uploaded to the Space and sent
+    # as a Gradio FileData object (required by img2img endpoints).
+    coerced = []
+    for p in params:
+        if p.startswith('file:'):
+            fp = os.path.expanduser(p[5:])
+            remote = upload(base, fp, tok)
+            print(f'[.] uploaded {os.path.basename(fp)} -> {remote}')
+            coerced.append(file_ref(remote))
+        else:
+            coerced.append(coerce(p))
+    params = coerced
 
     print(f'[.] {sid}  endpoint={path}  params={len(params)}')
     try:
@@ -47,27 +84,39 @@ def main():
         print(f'[!] submit failed: {str(e)[:180]}'); sys.exit(1)
     print(f'[.] event_id={eid}')
 
-    # SSE poll. A slow CPU Space can take many minutes; keep polling.
-    deadline = time.time() + float(os.environ.get('GRADIO_WAIT', '900'))
+    # SSE poll with INCREMENTAL line reads. Gradio holds the stream open and emits
+    # `event: heartbeat` while the job runs, so a blocking .read() never returns
+    # until the job ends and defeats socket timeouts. Read line by line instead.
+    wait = float(os.environ.get('GRADIO_WAIT', '900'))
+    t0 = time.time()
+    try:
+        stream = call(f'{base}/gradio_api/call{path}/{eid}', None, H, 'GET', timeout=120)
+    except Exception as e:
+        print(f'[!] stream open failed: {str(e)[:150]}'); sys.exit(1)
     final = None
-    while time.time() < deadline:
-        time.sleep(6)
+    ev = None
+    while time.time() - t0 < wait:
         try:
-            raw = call(f'{base}/gradio_api/call{path}/{eid}', None, H, 'GET').read().decode()
+            line = stream.readline()
         except Exception as e:
-            print(f'  poll err {str(e)[:70]}'); continue
-        ev = [l[7:] for l in raw.splitlines() if l.startswith('event:')]
-        if 'error' in ev:
-            print('[!] Space returned error (worker crash or hidden quota)')
-            sys.exit(2)
-        if 'complete' in ev:
-            for line in raw.splitlines():
-                if line.startswith('data:'):
-                    try: final = json.loads(line[5:].strip())
-                    except Exception: pass
+            print(f'  stream err {str(e)[:70]}'); break
+        if not line:
+            print('[!] stream closed before completion'); break
+        s = (line.decode('utf8', 'replace') if isinstance(line, bytes) else line).strip()
+        if s.startswith('event:'):
+            ev = s[6:].strip()
+            if ev == 'error':
+                print('[!] Space returned error. On cpu-basic this usually means the '
+                      'model is too heavy for 2 vCPU (needs a distilled model + few steps).')
+                sys.exit(2)
+            if ev not in ('complete', 'data'):
+                print(f'  [{ev}] {int(time.time() - t0)}s')
+        elif s.startswith('data:') and ev == 'complete':
+            try:
+                final = json.loads(s[5:].strip())
+            except Exception:
+                pass
             break
-        el = int(time.time() - (deadline - float(os.environ.get('GRADIO_WAIT', '900'))))
-        print(f'  ...{el}s')
     if final is None:
         print('[!] timed out'); sys.exit(3)
 
@@ -84,6 +133,16 @@ def main():
         open(out, 'wb').write(base64.b64decode(b64.group(1)))
     else:
         print('[!] no image in response:'); print(blob[:600]); sys.exit(4)
+    # Gradio often returns webp regardless of the requested name; fix the extension
+    # from magic bytes so downstream viewers/ffmpeg don't get confused.
+    head = open(out, 'rb').read(16)
+    real = None
+    if head[:4] == b'RIFF' and head[8:12] == b'WEBP': real = '.webp'
+    elif head[:8] == b'\x89PNG\r\n\x1a\n': real = '.png'
+    elif head[:3] == b'\xff\xd8\xff': real = '.jpg'
+    if real and not out.lower().endswith(real):
+        fixed = os.path.splitext(out)[0] + real
+        os.replace(out, fixed); out = fixed
     print(f'[+] saved {out} ({os.path.getsize(out)} bytes)')
 
 main()
