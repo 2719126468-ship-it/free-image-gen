@@ -19,7 +19,7 @@
 | Krea | 需 workspace owner | **无免费档** | 未知 | 快 | 高 | ❌ 纯付费 |
 | InferencePort (`sharktide-lightning.hf.space`) | 需 API key | 图 ~10/天 | 无审查 | 快 | 高（flux-2-pro/gpt-image/seedream） | ❌ `/v1/models` 公开但生图端点 401 |
 
-**结论：零 key 主力仍是 Pollinations Classic（9s/张，45s 限流）；AI Horde 无限量但受全网仅 16 台图像 worker 的容量压制，实测等待 8-15 分钟。**
+**结论：零 key 主力仍是 Pollinations Classic（9s/张，45s 限流，已实测降级为「pollen 付费」——见第九节）；AI Horde 白天已恢复 800+ worker（811 线程），img2img 实测可用，等待约 13 分钟。**
 
 **当前质量最高的一条：`pol_edit.py` + `black-forest-labs/flux.1-kontext-pro` —— 实测唯一同时满足「审核松 + 解剖清晰 + 锁住原图构图」的 img2img 路线，见第九节。**
 
@@ -149,3 +149,57 @@
 | `linoyts/scribble-sdxl-flash` | cpu-basic | `/run` | image,prompt,neg,style,steps,guid,cn,seed,hed,canny | 涂鸦/线稿生图 |
 
 **结论**：假设成立——这些 Space 用 `event_id` 提交成功且不报 ZeroGPU 配额错误，与额度归零时立即失败的 zero-a10g Space 形成对照。**代价**：cpu-basic 出图慢（分钟到十几分钟级），且 Space 可能随时被所有者下线或改成 ZeroGPU。脚本 `gradio_space_gen.py` 封装了通用 gradio 两步调用（submit→SSE 轮询→下载）。
+
+## 九、Pollinations 新版 API（gen.pollinations.ai）——完整测量
+
+> 2026-10-17 实测。Classic 的 `image.pollinations.ai` 带 token GET `/prompt` 已返回 402（Payment-Required）——**无 key 免费图生图在 Classic 侧已死**。新版 `gen.pollinations.ai` 是 OpenAI 兼容面，以下全部实测。
+
+### 端点与计费
+| 端点 | 用途 | 实测 |
+|---|---|---|
+| `POST /v1/images/edits` | **真 img2img**（`image` 收 URL 或 `data:image/jpeg;base64,...`） | ✅ 768×1024 高质量出图 |
+| `POST /v1/images/generations` | 文生图 | ✅ |
+| `GET /v1/models` | 128 个模型 | ✅ |
+| `GET /quests/catalog`、`/account/quests/rewards` | 任务与奖励状态 | ✅ |
+
+- 计价：`black-forest-labs/flux.1-kontext-pro` **0.03 pollen/张**（模型 id 必须用全名，`kontext-pro` 别名会 400 Invalid model）；`flux.2-klein-4b` 0.005。
+- **402 Insufficient balance** 即钱包耗尽；`key_budget` 是 key 的预算上限，不是余额（实测 `/account/balance` 显示 `balance:5` 但 edits 仍 402）。
+- 请求超时要给足：768×1024 quality=high 实测 20-40s。
+
+### 审核地图（实测）
+| 模型 | 结果 |
+|---|---|
+| `black-forest-labs/flux.1-kontext-pro`、`flux.2-klein-4b` | ✅ PASS（成年人向动漫图直接出） |
+| `microsoft/mai-image-2.6` / `-flash` | ❌ BLOCK（Azure `content_safety_violation`） |
+| `openai/gpt-image-1-mini` | ❌ BLOCK（`safety_violations=[sexual]`） |
+| `community/scriptsnsenses-sys/flux-2-dev-free` | ❌ BLOCK（logfare.ai 标记；`required_safety` 五类全开） |
+
+### 免费回血通道（quests）
+| 任务 | 奖励 | 实测状态 |
+|---|---|---|
+| `first_api_key` | +0.25 | ✅ earned+claimed |
+| `use_app` | +0.25 | ✅ **earned，待 claim**（polli CLI 登录即触发） |
+| `connect_polli_cli` | +1 | open——需 dashboard session |
+| `use_text_model` / `use_image_model` / `use_agent` / `use_community_model` | 各 +0.25 | open |
+
+- **claim 是 dashboard-only**：`POST /account/quests/rewards/{rewardId}/claim` 用 API key 会 403 "Reward claims require a dashboard session"——需要浏览器 session（GitHub OAuth 登录 enter.pollinations.ai）。
+- 设备流：`polli auth login` → `enter.pollinations.ai/api/device/code`（client `pk_VZF38YW4tQX36SEn`，scope `generate profile usage keys machines`）→ 浏览器批准 → `/api/device/token` 换 key。自动生成 **Device key：5 pollen 预算、`account:[profile,usage,keys,machines]`、7 天有效**。
+
+### 本机工具
+- `scripts/pol_edit.py <ref> <out> "<指令>" [model]`：`/v1/images/edits` 封装，env `POLLINATIONS_KEY`/`SIZE`/`QUALITY`/`SEED`/`SAFE`。
+- key 存 `~/.dsh/.pollinations-key`；polli 设备 key 存 `~/.pollinations/credentials.json`。
+
+## 十、Perchance 免费无限生图（逆向工程，Turnstile 未破）
+
+> 来自 yuser00123/perchance-mcp-unlimited 的公开逆向流程，本机已复现前半段。
+
+### 已跑通的链路
+1. `BID=$(openssl rand -hex 16)` 浏览器 id → `GET perchance.org/api/getAccessCodeForAdPoweredStuff`（**普通 curl 即过**，住宅 IP + 浏览器 UA）→ 广告码
+2. `GET image-generation.perchance.org/api/verifyUser?browserId=$BID&token=<turnstile>&thread=0` → userKey（64hex，~30s，IP 绑定）
+3. `POST /api/generate?userKey=...&requestId=0.<rand>&adAccessCode=...&v=<hash>` → text2image
+4. `GET /api/downloadTemporaryImageViaProxy?t=...`（IP 绑定，5 分钟窗口）
+
+- 分辨率：512x512 / 512x768 / 768x512 / 768x768。
+- **卡点**：verifyUser 需要真实过 Turnstile（sitekey `0x4AAAAAAAA8g8NphwaSOT59`）。Termux `chromium --headless=new` 加载页面但 body 停在 `{"status":"failed_verification","reason":"token_required"}`——headless 不会自动解 widget。
+- **可行解**（未完）：SeleniumBase UC Mode、或本机可见浏览器（AI 浏览器工作台）过一次 Turnstile 抓 userKey。
+- 脚本：`scripts/perchance_gen.py`（ad code 部分已跑通）。
