@@ -23,7 +23,7 @@
 │   ├── routes.md          ← 完整实测调研（12 节，权威）
 │   └── new-pools-research.md ← 新池调研（含被实测推翻的 3 条传言）
 └── scripts/
-    ├── vercel_img.py      ← ★★ Vercel AI Gateway img2img（$5/30天免费，kontext-pro）
+    ├── vercel_img.py      ← Vercel AI Gateway img2img（**需绑卡**，实测 403，封存待用）
     ├── replicate_edit.py  ← ★ Replicate Try-for-Free img2img（有限次数）
     ├── pol_anon.py        ← ★ 匿名档文生图（零 key）
     ├── pol_edit.py        ← ★ 新版 API img2img（pollen key）
@@ -65,7 +65,7 @@
 
 | 路线 | 认证 | 文生图 | **img2img** | 速度 | 额度 | 审核 |
 |---|---|---|---|---|---|---|
-| **Vercel AI Gateway** `vercel_img.py` | Vercel 账号（免费不绑卡） | ✅ | ✅ **kontext-pro** | 20–60s | **$5/30天循环 ≈125张** | 商业标准 |
+| **Vercel AI Gateway** `vercel_img.py` | Vercel 账号 **+必须绑卡** | ✅ | ✅ kontext-pro | 20–60s | $5/30天（**不绑卡实测 403**） | 商业标准 |
 | **Replicate Try-for-Free** `replicate_edit.py` | Replicate 账号（免费） | ✅ | ✅ kontext-pro | 20–60s | 有限次数 | 商业标准 |
 | **AI Horde** `horde_img2img.py` | 匿名 `0000000000` | ✅ | ✅ `source_image` | **45s–21min** | 无限 | **无** |
 | **Pollinations 新版** `pol_edit.py` | pollen key | ✅ | ✅ **kontext-pro** | 20–40s | 0.03 pollen/张 | **松** |
@@ -127,6 +127,22 @@ HORDE_USE_KEY=1 python3 scripts/horde_img2img.py <ref> <out.webp> "<prompt>" "<n
 - **坑 3**：`aihorde.net` 必须带 `Client-Agent` 头，否则 403；`stablehorde.net` 是官方正名
 - worker 会把 1024 请求降级回 512×512
 - 纯黑图 = worker 审查，用 `ffmpeg signalstats` YAVG<6 判定
+- **★ 动漫模型实测（2026-10-17，10 个并行，832x1216/25steps/cfg7/k_euler_a）**：
+  | 模型 | 耗时 | YAVG | 判定 |
+  |---|---|---|---|
+  | Flat-2D Animerge | 735s | 138.8 | ✅ 最锐利 |
+  | Eimis Anime Diffusion | 735s | 168.7 | ✅ 最亮 |
+  | Counterfeit | 651s | 136.1 | ✅ 光影最好 |
+  | Elysium Anime | 702s | 116.2 | ✅ |
+  | MeinaMix | 740s | 87.2 | ✅ |
+  | Anything v5 | 621s | 155.6 | ✅ |
+  | Abyss OrangeMix | 656s | 122.6 | ✅ |
+  | Hassaku XL / Mistoon Anime | 739s/336s | 23.5 | ⚠️ 字节完全相同=同 worker |
+  | Nova Anime XL | 655s | 0.0 | ❌ 纯黑 |
+  | WAI-NSFW-illustrious-SDXL（12 worker 最多） | 253s | 0.0 | ❌ 纯黑 |
+  | Animagine XL（4 worker） | 3 次全超时 | — | ❌ 排队 800+ 降不下来 |
+  **→ 主力用 Flat-2D / Counterfeit / MeinaMix / Anything v5；worker 多 ≠ 能出图**
+- worker 会把 832×1216 请求降级成 **512×512**（常态，改不了）
 
 ### 4.4 Gemini web 端反代（最强免费 img2img，缺 Cookie）
 - **二进制直接可用**：`gemini-web2api-go` v4.22.0 `linux_arm64`（16MB，静态链接）
@@ -220,16 +236,18 @@ HORDE_USE_KEY=1 python3 scripts/horde_img2img.py <ref> <out.webp> "<prompt>" "<n
       （gw2api 二进制就绪 + DNS 已用 proot 修好，纯等 Cookie）
 - [ ] **新发现待核实**：Device key（credentials.json）能付 kontext-pro edits 费，余额还有 4.72 pollen；
       但 pollen 是 7 天设备预算（10-24 到期），用不用、怎么用由用户拍板，**先问再烧**
-- [ ] **★ 下一步：Vercel AI Gateway**（`scripts/vercel_img.py`，已写好待 key）
-      用户注册 vercel.com（**免费、别绑卡**）→ Dashboard → AI Gateway → API Keys → Create
-      → `echo 'AI_GATEWAY_API_KEY=vck_...' > ~/.dsh/.vercel-gw-key && chmod 600`
-      → 即可 $5/30 天循环跑 `bfl/flux-kontext-pro`（≈125 张/月），彻底摆脱 pollen 焦虑
+- [x] **Vercel AI Gateway 已实测：必须绑卡，不是免费**（2026-10-17）
+      key 已写入 `~/.dsh/.vercel-gw-key`（vck_8OCcwUkB...），但调用 → **HTTP 403**
+      `AI Gateway requires a valid credit card on file to service requests`
+      官方 getting-started 原文也写 "To use free AI Gateway Credits, **add a valid payment method**"
+      → 没有可绑的卡就用不了，这条路**封存**；脚本 `vercel_img.py` 保留待有卡时启用
 - [ ] **Replicate Try-for-Free**（`scripts/replicate_edit.py`，已写好待 token）
       注册 replicate.com → api-tokens → `~/.dsh/.replicate-token`，白嫖 kontext-pro 有限次数
 - [ ] **新池调研结论**（docs/new-pools-research.md）：
       ❌ 已死：HF Inference 免费额度（2026-10-08 取消，402）、HF Spaces ZeroGPU（额度封顶）、
       Gemini 官方 API 图像（无免费档）、Together（无试用）、fal 匿名 API（401，只能网页手动 15 次/天）
-      ✅ 可用：Vercel $5/月、Replicate 免费集合、AI Horde、Pollinations 匿名
+      ✅ 可用：AI Horde（10 个动漫模型实测 9 个能出图）、Pollinations 匿名、Replicate 免费集合（待验是否要卡）
+      ❌ 不可用：Vercel（必须绑卡，403）
       待用户拍板：quest 手动 claim（回血 2–3 pollen）、HF PRO $9/月（$2 credits + 8× ZeroGPU）
 - [ ] **Perchance**：如需再战，用 EzSolver + 真 Chrome（或 termux-x11）
 - [ ] 公益站注册（需用户提供邮箱/邀请码）：moyuu.cc / vsllm.com / freeapi.dgbmc.top / aotera.cc

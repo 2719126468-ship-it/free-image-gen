@@ -11,7 +11,7 @@
 | 路线 | img2img | 免费额度 | 本机实测结果 | 可行性 |
 |---|---|---|---|---|
 | **AI Horde**（已在用） | ✅ | 无限 | ✅ 45–65s 出图，匿名可用 | **高（现役主力）** |
-| **Vercel AI Gateway** | ✅ | **$5 / 30 天循环** | 政策已核实，未注册 | **高（最值得接）** |
+| **Vercel AI Gateway** | ✅ | **需绑卡才解锁 $5/30天** | ❌ 实测 403 `credit card required` | **需绑卡（否则不可用）** |
 | **Replicate Try-for-Free** | ✅ kontext-pro | 有限次数 | 集合页确认含 kontext-pro；匿名 API 401 | **中高（需注册）** |
 | **fal.ai Sandbox** | ✅ | **15 次/天，无需账户** | 页面原文已核实，未实测调用 | **中高（零门槛试用）** |
 | **Claw Hunter Proxy** | ✅ | 声称 1K/天 | 无公共实例，必须自己部署到 CF Workers | **中（要自建）** |
@@ -81,27 +81,30 @@ predict(input_image, prompt, seed, randomize_seed, guidance_scale, steps, api_na
 
 ---
 
-## 三、【最值得接】Vercel AI Gateway —— $5 / 30 天循环，含 Kontext Pro
+## 三、Vercel AI Gateway —— ❌ **必须绑卡，不是"免费"**（2026-10-17 实测推翻）
 
-官方 pricing 页原文（本机抓取核实）：
+**官方原文**（`vercel.com/docs/ai-gateway/getting-started`）：
 
-> Free tier: **Monthly credit $5 / month included**；Model access: **Free Tier eligible models**；
-> "Free users (those who haven't made a payment) get **$5 of credits every 30 days**."
+> To use free AI Gateway Credits, **add a valid payment method** to your team.
 
-**关键发现：`bfl/flux-kontext-pro` 在免费层模型列表里**（`/ai-gateway/models?freeTier=true` 页面含该 id）。
-另外免费层还含 `google/gemini-nano-banana-2.1`、`google/gemini-2.5-flash-image`、`openai/gpt-image-2`、`bfl/flux-2-klein-4b` 等 26 个图像相关模型。
+**本机实测**（真 key `vck_8OCcwUkB...`，写入 `~/.dsh/.vercel-gw-key` 后打请求）：
 
-- 单价：Kontext Pro **$0.04/张** → **$5 ≈ 125 张/月**（klein-4b 更便宜，约 $0.014/百万像素）
-- 认证：Vercel 账号 + AI Gateway API Key，**免费层无需付款**（"those who haven't made a payment"）
-- API：OpenAI 兼容（Chat Completions / Images），纯 HTTP，Termux 无障碍
-- 限制：免费层有 per-model 速率限制，超了返回 429；**一旦充值就永久失去每月 $5**
-- 审查：BFL / Google / OpenAI 各自的 AUP，商业标准，NSFW 大概率被拦
+```
+POST https://ai-gateway.vercel.sh/v1/chat/completions
+→ HTTP 403
+{"error":{"message":"AI Gateway requires a valid credit card on file to service requests.
+ Please visit .../ai?modal=add-credit-card to add a card and unlock your free credits.",
+ "type":"customer_verification_required"}}
+```
 
-> 来源：[Vercel AI Gateway pricing](https://vercel.com/docs/ai-gateway/pricing)｜[flux-kontext-pro 模型页](https://vercel.com/ai-gateway/models/flux-kontext-pro)
+**结论：那 $5/30 天不是"注册即送"，是"绑卡后解锁"。不绑卡 = 403，key 建了也没用。**
+这也解释了「创建 API 密钥一直失败」—— 免费账号在未绑卡时，创建入口会被拦或建出来的 key 不可用。
 
-**这是当前最优的「零成本 + 高质量 img2img」通道**：比 pollen（0.03/张，余额只剩 0.2）宽裕一个量级，且循环发放。
+- 模型本身没问题：`bfl/flux-kontext-pro` 确实在免费层列表（`/ai-gateway/models?freeTier=true`）
+- 单价 $0.04/张，$5 ≈ 125 张/月 —— **但前提是有一张能绑的卡**
+- 一旦充值进 paid tier，每月 $5 就永久消失（这条之前的判断仍然成立）
 
----
+> 来源：[getting-started.md](https://vercel.com/docs/ai-gateway/getting-started)｜[pricing.md](https://vercel.com/docs/ai-gateway/pricing)
 
 ## 四、【零门槛】fal.ai Sandbox —— 15 次/天，但只能网页手动（程序化需 Key）
 
@@ -171,27 +174,54 @@ README（本机抓取）核心事实：
 
 ---
 
-## 七、行动建议（按投入产出）
+## 七、行动建议（按投入产出，2026-10-17 实测后修正）
 
-**立刻可做（0 成本，0 注册）**
-1. **fal.ai Sandbox** 手动试 15 次/天 —— 先看 nano-banana / gpt-image-2 的编辑效果对不对路。
+**不需要任何卡、任何注册，立刻能用**
+1. **AI Horde + 动漫模型** —— 本机实测 10 个模型，**9 个正常出图**（详见 §八）。
+   免费无限、无审查、45s–12min 出图。这是当前唯一「零门槛 + 质量能打」的组合。
+2. **Pollinations 匿名档** —— 文生图 1 张/45s，纯兜底。
 
-**需要一次注册（0 成本，收益最大）**
-2. **Vercel AI Gateway** —— 注册 → 建 AI Gateway Key → 用 `bfl/flux-kontext-pro` 跑 img2img。
-   **$5/30 天 ≈ 125 张 Kontext Pro**，这是本项目最该接的一条。
-3. **Replicate** —— 注册后在 Try for Free 里跑 `black-forest-labs/flux-kontext-pro`，白嫖有限次数的高质量编辑。
+**需要注册但不需要卡（未实测到底）**
+3. **Replicate Try-for-Free** —— 官方 FAQ 说「不需要先买 credit」，但**是否需要绑卡未确认**（本机匿名 401）。
+   注册后先跑一次免费模型就知道，别再预先相信"免费"。
 
-**需要花钱（等拍板）**
-4. **HF PRO $9/月** —— $2 credits + 8× ZeroGPU。ZeroGPU 8 倍对 anima 路线是直接加强，顺带复活 Kontext Space。
+**需要绑卡（做不到就别碰）**
+4. **Vercel AI Gateway** —— $5/30 天是真的，但**必须绑卡解锁**，实测 403。没有卡 = 0。
 
-**不建议**
-5. HF 免费 Inference / HF Spaces 免费 ZeroGPU（均已封顶）、Gemini API（无免费档）、Together（无试用）、
-   Pixazo（要绑卡）、Novita（$0.50 太少）、Kavel（编辑需 Key）、MJ Proxy（假免费）。
+**需要花钱**
+5. **HF PRO $9/月** —— $2 credits + 8× ZeroGPU，能复活 Kontext Space。
 
-**继续白嫖的现役主力**
-6. **AI Horde**（无限、无审查、45–65s）+ **Pollinations 匿名档**（文生图 1 张/45s）。
+**已死**
+6. HF 免费 Inference（2026-10-08 取消）、HF Spaces 免费 ZeroGPU（额度封顶）、
+   Gemini 官方 API 图像（无免费档）、fal 匿名 API（401）、Together（无试用）。
 
----
+## 八、AI Horde 动漫模型实测（2026-10-17，10 个模型并行）
+
+请求参数：`832x1216 / 25 steps / cfg 7 / k_euler_a / karras / nsfw=true`，匿名 `0000000000`。
+
+| 模型 | 耗时 | 字节 | 尺寸 | YAVG | 结果 |
+|---|---|---|---|---|---|
+| **Flat-2D Animerge** | 735s | 66,822 | 512² | 138.8 | ✅ 最锐利、线条最干净 |
+| **Eimis Anime Diffusion** | 735s | 62,958 | 512² | 168.7 | ✅ 最亮、最"动漫" |
+| **Counterfeit** | 651s | 50,904 | 512² | 136.1 | ✅ 光影最好、最稳 |
+| **Elysium Anime** | 702s | 46,442 | 512² | 116.2 | ✅ 氛围感强 |
+| **MeinaMix** | 740s | 42,124 | 512² | 87.2 | ✅ 经典，饱和度好 |
+| **Anything v5** | 621s | 39,186 | 512² | 155.6 | ✅ 柔和 |
+| **Abyss OrangeMix** | 656s | 38,204 | 512² | 122.6 | ✅ 老牌稳定 |
+| Hassaku XL | 739s | 23,092 | 512² | 23.5 | ⚠️ 偏暗（可能与 Mistoon 同一 worker） |
+| Mistoon Anime | 336s | 23,092 | 512² | 23.5 | ⚠️ 字节与 Hassaku 完全相同 |
+| **Nova Anime XL** | 655s | 526 | 512² | 0.0 | ❌ **纯黑图（worker 审查吞图）** |
+
+**关键结论**：
+
+1. **排队 5–12 分钟**，出图后 worker 还会把 832×1216 降级成 **512×512**（这是常态，改不了）
+2. **worker 多 ≠ 能出图**：`WAI-NSFW-illustrious-SDXL`（12 worker，最多）和 `Nova Anime XL` 都输出纯黑 526B
+3. **Hassaku XL 与 Mistoon Anime 字节完全相同（23,092）** → 同一个 worker 用同一个模型跑的，不是两个模型
+4. **能用的是这 7 个**：Flat-2D Animerge / Eimis / Counterfeit / Elysium / MeinaMix / Anything v5 / Abyss OrangeMix
+5. **`Animagine XL` 单独测了 3 次全部超时**（queue 从 800+ 缓慢降到 180，20 分钟内没排到）——
+   它有 4 worker 但在线负载高，**不适合当主力**
+
+对比图：`~/th-img/horde_anime_sheet.jpg`（6 模型并排）
 
 ## 附：pollen 侧可做的零成本回血
 

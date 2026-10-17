@@ -27,7 +27,7 @@
 
 | 引擎 | 认证 | 免费额度 | 审查 | 速度 | 说明 |
 |---|---|---|---|---|---|
-| **`vercel_img.py`** ★ | Vercel 账号（免费，别绑卡） | **$5 / 30 天循环**，kontext-pro ≈ 125 张 | 商业标准 | 20–60s | **当前最优免费 img2img** |
+| **`vercel_img.py`** | Vercel 账号 **+ 必须绑卡** | $5/30 天（绑卡后解锁） | 商业标准 | 20–60s | ⚠️ 不绑卡实测 403 |
 | **`replicate_edit.py`** | Replicate 账号（免费） | Try-for-Free 有限次数（含 kontext-pro） | 商业标准 | 20–60s | 白嫖高质量编辑 |
 | **`horde_img2img.py`** | 匿名 | **无限**（排队 45s–20min） | **无审查** | 慢 | 无审查首选 |
 | **`pol_edit.py`** | pollen key | 0.03 pollen/张 | 松 | 20–40s | 烧钱，余额告急 |
@@ -38,17 +38,18 @@
 
 ## 快速开始
 
-### 0. img2img：Vercel AI Gateway（$5/月免费，推荐）
+### 0. img2img：Vercel AI Gateway（**必须先绑卡**，实测不绑卡 403）
 
 ```bash
-# 一次性：注册 vercel.com（免费、不绑卡）→ Dashboard → AI Gateway → API Keys → Create
+# 注册 vercel.com → 添加有效支付方式 → Dashboard → AI Gateway → API Keys → Create
 echo 'AI_GATEWAY_API_KEY=vck_xxx' > ~/.dsh/.vercel-gw-key && chmod 600 ~/.dsh/.vercel-gw-key
 
 ./scripts/vercel_img.py ref.jpg out.jpg "把尾巴换成两条人腿，膝盖分开，双脚踩在床垫上" \
     bfl/flux-kontext-pro
 ```
 
-> ⚠️ 一旦给 Vercel 充值就**永久失去**每月 $5 免费额度，保持不绑卡。
+> 实测原文：`AI Gateway requires a valid credit card on file to service requests`（HTTP 403）。
+> 没有可绑的卡 = 这条路用不了。
 
 ### 0.5 img2img：Replicate Try-for-Free（白嫖有限次数）
 
