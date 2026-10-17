@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Colab Remote Gen",
+    "description": "Turns a free Google Colab T4 (anima_colab.ipynb tunnel) into a native harness tool: uncensored image and Wan2.2 video generation, results downloaded back to the device."
+  }
+}

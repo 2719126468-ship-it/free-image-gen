@@ -1,0 +1,25 @@
+{
+  "name": "@local/dsh-colab-gen",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "把远端 Google Colab 免费 T4（anima_colab.ipynb 起的隧道）变成原生 harness 工具 colab_gen：无审查生图 / 生视频，结果下载回本机。",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/*.json",
+    "README.md"
+  ],
+  "icon": "./icon.svg",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

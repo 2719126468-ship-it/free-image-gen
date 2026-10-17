@@ -1,0 +1,8 @@
+# colab_gen —— 远端 Google Colab 免费 T4 的生图/生视频，作为原生 harness 工具。
+#
+# 插件不读任何密钥：隧道地址来自 ~/.dsh/.colab-url 或 COLAB_URL 或参数 url。
+# 上游 notebook 是 examples/anima_colab.ipynb，跑第 4 格起 Flask+cloudflared 打印 URL。
+- insert:
+    - id: colab-gen
+      name: '@local/dsh-colab-gen'
+      config: {}

@@ -92,14 +92,28 @@ chmod 600 ~/.dsh/.cf-ai.env
 
 ```bash
 echo 'https://xxx.trycloudflare.com' > ~/.dsh/.colab-url
-./scripts/colab_gen.sh "1girl, solo, blue long hair"    # 自动读取 url 文件
-./scripts/colab_gen.sh --health                         # 查档位（GPU/CPU）/队列
+./scripts/colab_gen.sh "1girl, solo, blue long hair"    # 单张，自动读取 url 文件
+./scripts/colab_gen.sh --health                         # 查档位（GPU/CPU）/队列/视频模型状态
 ./scripts/colab_gen.sh --batch prompts.txt              # 批量出图
+./scripts/colab_gen.sh --video "镜头缓缓推近" "" "" ref.png  # 图生视频（ref 可选）
 ./scripts/colab_gen.sh --flush                          # 把产出搬进 Drive
 ```
 
 一个 3.5–6h 会话在 T4 上约 350–500 张（25 步 832×1216 每张 15–40s），是本地免费方案的 10–20 倍产能。
 CPU 档时 notebook 会禁用生成，改用第 8 格做 ffmpeg/打标等后处理。
+视频用 Wan 2.2 TI2V-5B，**权重懒加载**：只有第一次请求视频才下 ~10–20GB，纯生图永不触碰。
+
+#### 4b. 在 DSH 里直接调用（`colab_gen` 工具）
+
+把这台 Colab 注册成 DSH 原生工具，对话里直接说「用 Colab 画一张…」即可，模型自动提交任务并把图/视频拉回本机：
+
+```bash
+# 安装插件（DSH 桌面端：插件 → 添加插件 → 本地目录）
+#   目录：plugins/dsh-colab-gen
+```
+
+工具动作：`health` / `generate` / `batch` / `video` / `upload`（推参考图做 I2V）/ `flush` / `status`。
+详见 [plugins/dsh-colab-gen/README.md](plugins/dsh-colab-gen/README.md)。
 
 ## 凭据存放位置
 

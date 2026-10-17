@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Colab 远程生图/生视频",
+    "description": "把远端 Google Colab 免费 T4（anima_colab.ipynb 起的隧道）变成原生 harness 工具：无审查生图与 Wan2.2 视频，结果下载回本机。"
+  }
+}

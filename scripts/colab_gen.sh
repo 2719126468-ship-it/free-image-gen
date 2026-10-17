@@ -26,16 +26,24 @@ NEG='worst quality, low quality, score_1, score_2, score_3, artist name, blurry,
 
 # tunables (override via env)
 W="${W:-832}"; H="${H:-1216}"; STEPS="${STEPS:-25}"
+VW="${VW:-1280}"; VH="${VH:-704}"; VSTEPS="${VSTEPS:-50}"; FRAMES="${FRAMES:-121}"; VFPS="${VFPS:-24}"
 
 usage() {
   cat <<EOF
 usage: colab_gen.sh "prompt" [url] [outdir] [seed] [w] [h] [steps]
        colab_gen.sh --health
        colab_gen.sh --batch prompts.txt
+       colab_gen.sh --video "prompt" [url] [outdir] [ref_image]
        colab_gen.sh --flush
 
 url: https://xxxx.trycloudflare.com  (printed by notebook cell 4)
      or stored in $URLFILE
+
+env: W H STEPS (图, 默认 832x1216/25)
+     VW VH VSTEPS FRAMES VFPS (视频, 默认 1280x704/50/121帧/24fps)
+     COLAB_URL OUTDIR
+
+video: 首次会触发 Colab 端下载 Wan2.2 权重(~10-20GB)；ref_image 走图生视频(I2V)
 EOF
   exit 2
 }
@@ -77,8 +85,11 @@ d = json.load(open(sys.argv[1]))
 gpu = d.get('gpu')
 print(f"url     : {sys.argv[2]}")
 print(f"档位    : {'GPU - ' + str(d.get('gpu_name')) + ' ' + str(d.get('vram_gb')) + 'GB' if gpu else 'CPU 档（无卡，只能后处理）'}")
-print(f"队列    : {d.get('queue')} 个任务")
+print(f"队列    : {d.get('pending', d.get('queue', '?'))} 待处理 · 已建任务 {d.get('jobs', 0)} 个")
+print(f"视频模型: {'已加载' if d.get('video_loaded') else '未加载（首次请求视频时才下 ~10-20GB）'}")
 print(f"输出目录: {d.get('out')}")
+if d.get('video_error'):
+    print(f"视频错误: {d.get('video_error')}")
 if not gpu:
     print("\n提示: CPU 档别生图（单张数分钟）。去 notebook 第 8 格做 ffmpeg/打标。")
 PY
@@ -202,12 +213,83 @@ print('[!] Colab 端产出仍在 /content，记得跑 --flush 搬进 Drive')
 PY
 }
 
+# ---------- 视频 ----------
+# 首次请求会触发 Colab 端下载 Wan2.2 权重(~10-20GB) + 生成，可能 15-25 分钟。
+# 有 ref_image 则先上传拿 Colab 端路径走 I2V，否则纯 T2V。
+video() {
+  local PROMPT="$1" URL="$2" OUTDIR="$3" REF="$4"
+  echo "[*] video url : $URL"
+  echo "[*] ${VW}x${VH} frames=$FRAMES fps=$VFPS steps=$VSTEPS${REF:+  ref=$REF}"
+  check || exit 1
+  mkdir -p "$OUTDIR"
+
+  local IMG_PATH=""
+  if [ -n "$REF" ] && [ -r "$REF" ]; then
+    echo "[*] 上传参考静帧 -> /upload"
+    IMG_PATH=$(curl -s -m 180 -F "file=@$REF" "$URL/upload" \
+      | python3 -c 'import sys,json;print(json.load(sys.stdin).get("path",""))' 2>/dev/null)
+    [ -z "$IMG_PATH" ] && { echo "[!] 上传失败"; exit 1; }
+    echo "[*] Colab 端路径: $IMG_PATH"
+  fi
+
+  local VF; VF=$(mktemp "${TMPDIR:-$HOME}/cv.XXXXXX")
+  python3 - "$VF" "$PROMPT" "$VW" "$VH" "$VSTEPS" "$FRAMES" "$VFPS" "$IMG_PATH" <<'PY'
+import sys, json
+f, p, w, h, st, fr, fps, img = sys.argv[1:9]
+d = {'kind': 'video', 'prompt': p, 'width': int(w), 'height': int(h),
+     'steps': int(st), 'frames': int(fr), 'fps': int(fps)}
+if img: d['image_path'] = img
+open(f, 'w').write(json.dumps(d))
+PY
+  curl -s -m 60 -X POST "$URL/generate" -H 'Content-Type: application/json' \
+    --data-binary "@$VF" -o "$VF.out"
+  local JID
+  JID=$(python3 -c 'import sys,json;print(json.load(open(sys.argv[1])).get("id",""))' "$VF.out" 2>/dev/null)
+  if [ -z "$JID" ]; then
+    echo "[!] submit failed: $(head -c 200 "$VF.out")"; rm -f "$VF" "$VF.out"; exit 1
+  fi
+  echo "[*] job : $JID（首次会先下视频权重，耐心等）"
+
+  local t0; t0=$(date +%s)
+  while :; do
+    sleep 15
+    local S ST EL
+    S=$(curl -s -m 30 "$URL/status/$JID")
+    ST=$(echo "$S" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))' 2>/dev/null || echo "?")
+    EL=$(( $(date +%s) - t0 ))
+    case "$ST" in
+      done)
+        local OUT="$OUTDIR/colab_vid_${JID:0:8}.mp4"
+        curl -s -m 300 -o "$OUT" "$URL/result/$JID"
+        if [ -s "$OUT" ] && [ "$(stat -c%s "$OUT")" -gt 1000 ]; then
+          echo "[+] $OUT ($(stat -c%s "$OUT") bytes) in ${EL}s"
+          rm -f "$VF" "$VF.out"; exit 0
+        fi
+        echo "[!] video download failed"; rm -f "$VF" "$VF.out"; exit 1
+        ;;
+      error)
+        echo "[!] job error: $(echo "$S" | head -c 300)"; rm -f "$VF" "$VF.out"; exit 1
+        ;;
+      *)
+        echo "[.] $ST (${EL}s)"
+        ;;
+    esac
+    if [ "$EL" -gt 2400 ]; then
+      echo "[!] 超 40min 仍未完成 - 检查 Colab 会话是否还活着 / 是否在下权重"
+      rm -f "$VF" "$VF.out"; exit 1
+    fi
+  done
+}
+
 # ---------- 主入口 ----------
 case "${1:-}" in
   ''|-h|--help) usage ;;
   --health)     resolve_url "${2:-}"; show_health ;;
   --flush)      resolve_url "${2:-}"; require_url; check || exit 1
                 curl -s -m 120 "$URL/flush"; echo; echo "[+] 已请求搬盘" ;;
+  --video)      [ -n "${2:-}" ] || usage
+                resolve_url "${3:-}"; require_url
+                video "$2" "$URL" "${4:-$OUTDIR}" "${5:-}" ;;
   --batch)      [ -n "${2:-}" ] || usage
                 resolve_url "${4:-}"; require_url
                 do_batch "$2" "$URL" "${3:-$OUTDIR}" ;;
