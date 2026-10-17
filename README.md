@@ -19,7 +19,7 @@
 | **cf** Cloudflare | API token | ~50 张/天 | **有过滤** | 5–15s | 高 |
 | **poll** Pollinations 匿名 | 无 | 1 张/45s | 可关 | 10–30s | 低 |
 | **th** TensorHub | 无 | 匿名 2 次 | 无审查 | 3–4min | 中 |
-| **colab** Google Colab | Google 账号 | 12h/会话 | 无审查 | 5–10min/张 | 任意 |
+| **colab** Google Colab | Google 账号 | 3.5–6h/会话 | 无审查 | 15–40s/张（T4） | 任意 |
 
 `gen.sh auto` 模式按 anima → horde → cf → poll 自动降级，谁有额度用谁。
 
@@ -88,14 +88,18 @@ chmod 600 ~/.dsh/.cf-ai.env
 
 ### 4. Google Colab（突破每日上限）
 
-打开 [examples/anima_colab.ipynb](examples/anima_colab.ipynb)，选 GPU 运行时，跑前 3 格。第 3 格会打印 `https://xxx.trycloudflare.com`，然后：
+打开 [examples/anima_colab.ipynb](examples/anima_colab.ipynb)，选 GPU 运行时，依次跑第 1→4 格。第 4 格会打印 `https://xxx.trycloudflare.com`，然后：
 
 ```bash
 echo 'https://xxx.trycloudflare.com' > ~/.dsh/.colab-url
 ./scripts/colab_gen.sh "1girl, solo, blue long hair"    # 自动读取 url 文件
+./scripts/colab_gen.sh --health                         # 查档位（GPU/CPU）/队列
+./scripts/colab_gen.sh --batch prompts.txt              # 批量出图
+./scripts/colab_gen.sh --flush                          # 把产出搬进 Drive
 ```
 
-12 小时会话约 70–140 张，是本地免费方案的 10–20 倍产能。
+一个 3.5–6h 会话在 T4 上约 350–500 张（25 步 832×1216 每张 15–40s），是本地免费方案的 10–20 倍产能。
+CPU 档时 notebook 会禁用生成，改用第 8 格做 ffmpeg/打标等后处理。
 
 ## 凭据存放位置
 
@@ -115,11 +119,12 @@ scripts/
   gen_quota.sh    实时额度探测
   anima_gen.sh    HF ZeroGPU Anima-2.9B
   horde_gen.sh    AI Horde（模型轮换 + 黑图检测）
-  colab_gen.sh    Colab notebook 客户端
+  colab_gen.sh    Colab notebook 客户端（--health / --batch / --flush）
   gen_image.sh    Cloudflare / Pollinations / HF Space
   th_gen.sh       TensorHub
 docs/routes.md    完整调研报告
-examples/         Colab notebook
+examples/
+  anima_colab.ipynb  Colab 免费档：GPU/CPU 自适应 + 保活 + 批量 + Wan 视频
 ```
 
 ## 已知限制
@@ -128,6 +133,10 @@ examples/         Colab notebook
 - **Cloudflare 有 NSFW prompt 过滤**，直出成人内容会被拒。
 - **AI Horde 的 `censored` 元数据不可信**：实测 `state=ok censored=False` 却返回纯黑图，脚本改用 `ffmpeg signalstats` 的 YAVG<6 判定。
 - **Horde 预签名 URL 几分钟失效**，必须立即下载。
-- Colab 会话 12 小时是免费档硬限，到点需重跑 notebook 前 3 格。
+- **Colab 免费档是 3.5–6h，不是 12h**（旧版记错）。到点进程被杀，需重跑 notebook 前 4 格。
+- **Colab 可能只给到 CPU 档**：此时生图不可用（单张数分钟），只能做后处理。
+- **Colab 免费系统内存 12.6GB 是正常的**（网上说的 25.2GB 是把 15GB 显存算进去了）；Flux/14B 视频会 OOM，免费档天花板是 Anima + SDXL + Wan 2.2 5B。
+- **Colab 的 `/content` 是临时盘**，会话结束即清空；模型每次重下，产出必须 `--flush` 搬进 Drive（免费 Drive 仅 15GB）。
+- **Wan 2.2 TI2V-5B 视频需 diffusers 主干版**（`pip install git+https://github.com/huggingface/diffusers`），PyPI 稳定版不支持。官方参数是 720P/24fps/5 秒，单卡 9 分钟内。
 
 依赖：`bash`、`python3`、`curl`、`ffmpeg`（用于 webp→png 与黑图检测）、`python curl_cffi`。
