@@ -281,3 +281,33 @@ curl -X POST http://127.0.0.1:9880/v1/images/generations \
   -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" \
   -d '{"prompt":"把尾巴换成两条人腿","image":"<base64>","model":"gemini-flash"}'
 ```
+
+### 十二·补：gemini-web2api-go 本机实测（2026-10-17）
+
+**二进制直接可用（Termux arm64）**，无需编译 pydantic/orjson：
+
+```bash
+curl -sL -o gw2api https://github.com/zexadev/gemini-web2api-go/releases/download/v4.22.0/gemini-web2api-go_v4.22.0_linux_arm64
+chmod +x gw2api && ./gw2api -port 8083 -admin-token ADM -api-key KEY -db ./gemini.db
+```
+
+| 项 | 实测 |
+|---|---|
+| 二进制 | ✅ `ELF 64-bit ARM aarch64, statically linked`，16MB，直接跑 |
+| `/` 健康检查 | ✅ `{"models":[...],"status":"ok","version":"4.22.0"}` |
+| `/v1/models` | ✅ 返回 `gemini-3.6-flash` / `gemini-3.5-flash-lite` |
+| 生图端点 | ⚠️ **不是** `/v1/images/generations`（404）。走 `POST /v1/chat/completions` + `"model":"gemini-image"` |
+| 匿名生图 | ❌ 400 `gemini-image is unavailable without a Google account cookie` |
+| 匿名对话 | ❌ 502（Google 要求登录态，返回无 content frame） |
+
+**Termux 关键坑：Go 二进制找不到 `/etc/resolv.conf`**（Android 上不存在），DNS 走 `::1` 失败：
+```
+dial tcp: lookup gemini.google.com on [::1]:53: read udp ...
+```
+**修法**：用 proot 把 Termux 的 resolv.conf 绑到 `/etc/resolv.conf`：
+```bash
+proot -b $PREFIX/etc/resolv.conf:/etc/resolv.conf -b $PREFIX/etc/hosts:/etc/hosts ./gw2api ...
+```
+修复后错误变为 `upstream returned no content frame`（已连通 Google，只是缺登录态）。
+
+**结论：这条路只缺一样东西——Gemini 账号 Cookie（`__Secure-1PSID` + `__Secure-1PSIDTS`）。**
