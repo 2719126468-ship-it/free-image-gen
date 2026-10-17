@@ -170,7 +170,7 @@ function renderText(value) {
   }
   if (value.action === 'health') {
     const h = value.health || {}
-    lines.push(h.gpu ? `档位: GPU  ${h.gpu_name} (${h.vram_gb}GB)` : '档位: CPU 档（无卡，生成不可用，请错峰重试）')
+    lines.push(h.gpu ? `档位: GPU  ${h.gpu_name} (${h.vram_gb}GB)` : '档位: CPU 档（走 OpenVINO SDXL-Lightning INT4 生图，4 步但慢）')
     lines.push(`队列: ${h.pending ?? '?'} 待处理 · 已建任务 ${h.jobs ?? 0} · 视频模型${h.video_loaded ? '已加载' : '未加载（按需下）'}`)
     if (value.url) lines.push(`URL: ${value.url}`)
     if (h.video_error) lines.push(`视频加载错误: ${h.video_error}`)

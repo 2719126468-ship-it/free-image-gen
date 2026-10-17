@@ -84,14 +84,14 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 gpu = d.get('gpu')
 print(f"url     : {sys.argv[2]}")
-print(f"档位    : {'GPU - ' + str(d.get('gpu_name')) + ' ' + str(d.get('vram_gb')) + 'GB' if gpu else 'CPU 档（无卡，只能后处理）'}")
+print(f"档位    : {'GPU - ' + str(d.get('gpu_name')) + ' ' + str(d.get('vram_gb')) + 'GB' if gpu else 'CPU 档（走 OpenVINO SDXL-Lightning，慢但能生图）'}")
 print(f"队列    : {d.get('pending', d.get('queue', '?'))} 待处理 · 已建任务 {d.get('jobs', 0)} 个")
 print(f"视频模型: {'已加载' if d.get('video_loaded') else '未加载（首次请求视频时才下 ~10-20GB）'}")
 print(f"输出目录: {d.get('out')}")
 if d.get('video_error'):
     print(f"视频错误: {d.get('video_error')}")
 if not gpu:
-    print("\n提示: CPU 档别生图（单张数分钟）。去 notebook 第 8 格做 ffmpeg/打标。")
+    print("\n提示: CPU 档可生图（OpenVINO SDXL-Lightning 4步，每张约 3-10 分钟），首张还需下 2GB 权重。")
 PY
 }
 
