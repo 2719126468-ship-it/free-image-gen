@@ -542,7 +542,38 @@ AVX512_BF16 首次出现于 **Cooper Lake(2021)/Ice Lake+**；**Colab 免费档�
 **桩件 4/4 + 全格回归 12 项全过**：`sdpre/**` 被认出（复现并修掉 v7.2 的 bug）｜`SDCPP['bin']` 优先｜
 warm 无二进制时大声失败｜日志上限 40/末 12 条｜`/sh` 的 rc/stdout/stderr/空命令 400｜闸门与 sdcpp 分流无回归。
 
-**待真机验证**：Q4_K 在 2 vCPU 的每步秒数（预期 10–20s/步 → 25 步 5–8 分钟）、832×1216 产物校验。
+#### 4.9.5 ✅ sdcpp 首次真机跑通加载（30 秒）+ 🔴 1.0MP 出图把 kernel 打死（隧道 `kept-station-jerusalem-says`）
+
+**加载阶段：彻底成功，成本 30 秒**（`/health` 的 `sdcpp_log` 原文）：
+```
+[sd.cpp] 下载 animagine-xl-4.0-Q4_K.gguf（2.80GB，仅首次）
+[+] 预编译 sd-cli 可用（--help rc=0），跳过源码编译
+[+] sdcpp 就绪(prebuilt): /content/sdpre/sd-cli + /content/animagine-xl-4.0-Q4_K.gguf
+```
+- **预编译包确实能在 Colab 跑**：解包出 `sd-cli`(1.4MB) + `sd-server` + `libwebp.so.7`，`--help` rc=0
+  → **源码编译那 5–10 分钟永久省掉**；GGUF 2.8GB 下载 <30s（Colab 机房带宽）
+- `_sdcpp_bin()` 现在认 `SDCPP['bin']` 与 `/content/sdpre/**`，v7.2 的"sd-cli 不存在"已消失
+- **`/sh` 自救通道实测可用**（`nproc`→2、`df`→87G 空闲），排查不用再付用户重载成本
+
+**出图阶段：`832×1216 / 20 步` 跑到 7.5 分钟后隧道 1033 → 转永久 530（Flask 源站死）**
+- 症状与 4.9.3 同款：**SDXL 在 1.0MP 上把整个 kernel 带走**。Q4_K 权重只有 2.8GB，
+  说明吃爆的不是权重，而是 **UNet/attention 的中间张量 + VAE 解码**（SDXL VAE 在 1MP 上很重）
+- 另一个发现：**`/status` 全程没有 `progress`** —— sd.cpp 用 `\r` 覆盖刷新进度行，
+  v7.3 用 `for line in pr.stdout` 逐行读**永远读不到**（text 模式只在 `\n` 处断行）
+
+**v7.4（已 push）三项保护**
+1. **子进程 `RLIMIT_AS` 硬上限**（`mem_cap_gb`，默认 `min(9.5, avail-1.2)`）：
+   sd-cli 自己 bad_alloc 失败 → job 报错、Flask 活着、**runtime 不再被 OOM killer 带走**
+2. **默认省内存参数**：`--vae-tiling --vae-tile-size 128 --disable-prefetch`；sdcpp 默认长边从 1024 收到 **768**
+   （`max_side` 可覆盖）
+3. **进度读取改成按 `\r`/`\n` 手工切字符**（`read(1)` 累加），并新增
+   `SDCPP['tail']`（末 8 行）+ `/health.sdcpp_tail` + 失败时把 tail 写进 `sdcpp_log`
+4. **`sdcpp_args` 透传**：以后调 `--flash-attn on` / 分辨率 / 步数**不用再重载**
+
+**桩件 5/5**：`\r` 进度 1/4→4/4 全解析｜默认参数 + 832×1216→512×768｜`sdcpp_args` + `max_side` 覆盖到 704×1024｜
+tail 留痕｜失败时 tail 双写（job error + sdcpp_log）。
+
+**下一步（真机）**：512×768 / 15 步首跑验证端到端 → 再逐步抬到 768 长边、开 `--flash-attn on` 试速度。
 
 #### 4.9.2 ★ v7 真机首跑：v7 代码生效 + cmake 第一枪就炸（2026-10-18 14:05，隧道 `eyes-flux-cal-depth`）
 
