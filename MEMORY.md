@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-18 11:05（第 8 次修订：v3 真机拿到 **fp32 速度基线 17s/步**，但进度回调炸 NoneType.pop → v4 修回调契约 + BUILD 自证，HEAD `debd07c`）
+> 最后更新：2026-10-18 11:35（第 9 次修订：**v4 真机端到端跑通**，CPU 档首次出图（sd_turbo fp32 77s/张）+ 色图 done；但 sana06 切档疑似撑爆 RAM 致隧道 530 死）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -12,7 +12,7 @@
 - **运行环境**：Android 10 + Termux（无 root，arm64，Python 3.14，无 GPU）
 - **Git 仓库**：`~/free-image-gen`，远程 `github.com/2719126468-ship-it/free-image-gen`，分支 `main`，**每轮任务结束必须 commit + push**
 - **核心文档**：`docs/routes.md`（所有实测结论、错误原文、配额机制，1–12 节）
-- **当前 HEAD**：`debd07c`（★ Colab CPU 档 v4：修 step 回调返回 dict + BUILD 版本字段；v3 已证 fp32 快路径可用 17s/步）
+- **当前 HEAD**：`debd07c`（★ Colab CPU 档 v4：**真机端到端跑通**，sd_turbo fp32 出图 77s/张；隧道已死待重开）
 
 ### 目录结构
 ```
@@ -339,9 +339,36 @@ AttributeError: 'NoneType' object has no attribute 'pop'
 - **⚠️ 但 v4 同样需要开新副本才生效**（F5 不重拉 GitHub + cell4 幂等复用旧 Flask）。
   当前 runtime 是 v3，那张 sd_turbo 已 error，队列空。
 
-**CPU 档速度现实**：fp32 ≈ 17s/步（sd_turbo 512px）。SDXL 档（sdxl_anime 8步/animagine 25步）
-按此推算 8步≈2.3min、25步≈7min+，且 SDXL unet 比 SD1.5 大得多、单步更慢 → **CPU 档只适合
-sd_turbo 这类少步小图快速验证，正式出图仍等 GPU 恢复切 animagine 30s/张**。
+**✅✅ v4 真机端到端跑通（隧道 `arbitrary-broadband-board-bras`，`/health` 回 `build:"v4"` 自证）**
+CPU 档第一次真正出图，`cpu_engine:"diffusers-float32"` / `cpu_ready:true` / `cpu_error:null`：
+
+| 任务 | 配置 | progress | 推理 elapsed | 含重载总 seconds | 产物 |
+|---|---|---|---|---|---|
+| 自测 | sd_turbo 512×512 steps4 | 4/4 | **77.1s** | 233.3s | ✅ 550970B PNG 512×512 luma=118.5 真图 |
+| **色图** | sd_turbo 512×768 steps4 NSFW | 4/4 | **113.7s** | 191.1s | ✅ done（隧道死前未拉回，见下） |
+| sana06 | 768×1024 steps4 NSFW | — | — | — | ❌ 提交后隧道 530 死，结果丢在 /content |
+
+- **CPU 档速度基线确立：sd_turbo fp32 ≈ 19–28s/步**（512² 77s/4步、512×768 113.7s/4步）。
+  比 v2 的 fp16（35 分钟没出图）快 **一个数量级以上**，"CPU 走 fp32"彻底验证正确。
+- 首任务 233s = 77s 推理 + 约 156s 下 2.6GB 权重 + 加载编译；后续任务命中内存只剩推理。
+- **CPU 档定位**：只适合 `sd_turbo` 这类 4 步小图（<2min/张）快速验证。SDXL 档
+  （sdxl_anime 8步 / animagine 25步）按 20s/步推 8步≈2.7min、25步≈8min+，且 SDXL unet
+  比 SD1.5 大、单步更慢 → 正式出图仍等 GPU 恢复切 animagine 30s/张。
+
+**🔴 隧道 530 死亡复盘（`arbitrary-broadband-board-bras`，03:22 起 sana06 任务卡住后崩）**：
+- 现象：`/health` 与 `/status` 全 **HTTP 530**，返回 7734B 的 Cloudflare 拦截 HTML 页
+  （`content_type:text/html`，含 `1033`），持续 4 分钟不恢复 = **源站（Flask runtime）已死**，非瞬时抖动。
+- 触发点：sana06 是 **768×1024 + 需重载 7.7GB 权重**（切档触发 `del pipe` + 重新 from_pretrained）。
+  极可能 **RAM 峰值把 Colab kernel 打死**（12.6GB 墙：sd_turbo 2.6GB 还在内存时又拉 7.7GB）。
+  → **教训：切 cpu_preset 会双模型共存撑爆 RAM**。已在 v4 的 `load_cpu_pipe` 里 `del CPU['pipe']`+gc，
+  但 diffusers 下载新权重的瞬时峰值仍可能压过旧模型释放。**待办 v5：切档前强制 `del` 旧 pipe + `gc.collect()`
+  确认释放，或干脆一个 runtime 只跑一个 preset。**
+- 拉图失败特征：`curl` 拿到 HTML 而非 PNG，`PIL.UnidentifiedImageError: cannot identify image file`。
+  **判定隧道是否真死**：`curl -w "%{http_code}"` 看是不是 530 + `content_type` 是不是 text/html，
+  别只看有没有字节数（拦截页也有 7734B）。
+
+**当前状态**：隧道 `arbitrary-broadband-board-bras` 已死，需重开 notebook（v4 代码已在 GitHub main）。
+`~/.dsh/.colab-url` 是死地址。色图通路已验证可用，重开后先跑 sd_turbo 出 NSFW 再拉回。
 
 #### 🔴 2026-10-18 09:26 实测（已修，见上节）：Colab **CPU 档整条路是坏的**
 
