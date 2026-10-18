@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-18 12:40（第 11 次修订：★ 新增 4.8 **SDXL on Colab CPU 天花板查证** —— 纠正「bf16 最优先」的外部建议；v6 bf16 自动探测已落地；sdcpp/Modal 两条真正可行路已写脚本）
+> 最后更新：2026-10-18 13:45（第 12 次修订：★ 新增 4.9 **Colab CPU v7 = sdcpp(GGUF) 引擎**；真机把「CPU 退 fp16」钉成 588s/步；闸门改分辨率感知 + force_dtype + /health 报 avail_ram_gb；插件枚举静默黑洞修掉）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -240,7 +240,7 @@ DSH 插件工具名 `colab_gen`（action 同名）。**插件代码改了要重�
 #### 当前状态（2026-10-18 09:20 复核）
 
 - ⚠️ **GPU 配额耗尽**：`/health` 实测 `gpu:false / gpu_name:none / vram_gb:0.0`，现在只给 CPU 档。恢复靠时间（一般次日）或错峰（国内清早概率高）
-- ✅ **隧道已换新并且活着**：`https://takes-consult-milton-between.trycloudflare.com`（已写入 `~/.dsh/.colab-url`），`GET /health` → HTTP 200 / 1.1s
+- ✅ 隧道每次 runtime 重启都变，最新地址永远以 `~/.dsh/.colab-url` 为准（本轮：`https://kick-trio-years-antenna.trycloudflare.com`，build v6、GPU 配额仍耗尽，见 4.9）
 - ❌ `cpu_ready:false` 的含义**不是"权重还在下载"**：见下节，CPU 档整条路是坏的（`OVDiffusionPipeline` 导入失败）
 - animagine-xl-4.0 权重（6.94GB）下载过一次，同 runtime 内免重下；runtime 没了要重下 ~8 分钟
 - **下一步**：CPU 档先跑 sana06 出图（notebook 自动分流，客户端无感）；GPU 恢复后切回 animagine 30s/张
@@ -453,6 +453,52 @@ AVX512_BF16 首次出现于 **Cooper Lake(2021)/Ice Lake+**；**Colab 免费档�
 - 视频（Wan2.2 TI2V-5B）从未实测成功，权重 10-20GB 会加剧 RAM/时间压力，**优先级放后**
 ---
 
+### 4.9 ★ Colab CPU 档 v7：sdcpp(GGUF) 引擎 + 闸门/精度修正（2026-10-18 13:17–13:45 真机+桩件）
+
+**新 runtime 复核（隧道 `kick-trio-years-antenna`）**：`/health` 回 `build:"v6"` / `gpu:false` /
+`cpu_bf16:**false**` / `cpu_sdpa:true` / `avail` 未暴露。→ 4.8 的预判**坐实**：免费档 CPU 没有
+`avx512_bf16`/`amx_bf16`，v6 的自动探测正确地跳过了 bf16（无硬件却硬切 bf16 = 更慢）。
+
+**真机把「CPU SDXL 两难」的退路也钉死了**：
+- 提交 `cpu_preset:"sana06", 1024×1024, steps 4` → 闸门拦下 fp32 → 自动退 **fp16**
+  （`/health` 的 `cpu_engine:"diffusers-float16"` 自证）
+- **实测 588s/步**（`/status` 在 elapsed 588.4s 才出 `progress:"1/4"`）→ 4 步 ≈ **40 分钟/张**
+- 对比 `sd_turbo` fp32 **27s/步**（v5 基线）→ **fp16 在 CPU 上慢约 22 倍**
+- **结论（第四面墙）**：CPU 上「fp32 过不了 RAM 闸门」不等于"降档还能用"，而是**任务实质报废** ——
+  退路 fp16 是 20 倍慢。闸门因此必须**分辨率感知**，且要给 `force_dtype` 显式逃生口，
+  否则 512² 小图也被按 1024² 的 act 预算误杀。
+
+**v7 已落地（notebook cell 4 `BUILD='v7'`）**
+
+| 改动 | 细节 |
+|---|---|
+| **sdcpp 引擎** | `cpu_preset:"sdcpp"`（animagine-xl-4.0 **Q4_K**，2.80GB）/ `"sdcpp_q8"`（4.18GB），走 stable-diffusion.cpp CLI。首次请求自动 `git clone --depth 1` + submodule + `cmake` build（5–10 分钟）+ 下 GGUF；`GET /sdcpp/build` 可预热；`/health` 暴露 `sdcpp_bin/sdcpp_gguf/sdcpp_building/sdcpp_error`。CLI stdout 的 `N/M - x.xx s/it` 解析回写 job `progress` |
+| 闸门分辨率感知 | `act_eff = act_gb × clamp(mp/1.05, 0.55, 1.0)`，512² 只按 1/4 计 |
+| `force_dtype` | 请求体加 `force_dtype: float32\|float16\|bfloat16` → 跳过自动 dtype 选择（闸门仍生效） |
+| `/health` | 新增 **`avail_ram_gb`**（以后不用再猜 12.6GB 里实际剩多少）、`force_dtype`、`cpu_presets` 追加 sdcpp/sdcpp_q8 |
+| 尺寸 | sdcpp 出图长边 ≤1024 且**按比例**缩放（900×1300 → 704×1024，不再压成方块），64 对齐 |
+
+**桩件实测 7/7 通过**（本机 exec + 假 flask/torch/diffusers/psutil + 假 `sd-cli` 脚本）：
+路由 9 条（含 `/sdcpp/build`）｜`/health` 字段齐且 `build=v7`｜**复现真机**「10.7GB 可用 + 1024² → 退 fp16」｜
+512² + `force_dtype=float32` 放行｜两档都被拦时抛可读错误（不再静默 OOM 打死会话）｜
+`cpu_preset=sdcpp*` 正确分流到 `render_sdcpp`｜diffusers 路径无回归（含进度回调不炸）。
+沙箱里另验：进度解析 `1/4→4/4`、长边缩放、`rc≠0` 抛错带尾部日志、构建链路 `clone→submodule→cmake→build`。
+
+**客户端同步（两个坑一起修）**：
+- 插件 `colab_gen` 的 `cpu_preset` 枚举原本是 **`sdxl_lightning` / `sd15_lcm`** —— 这两个名字
+  **服务端不认**（`set_cpu_preset` 只匹配 `CPU_PRESETS` 键），传进去**不报错、静默留在默认档 `sdxl_anime`**，
+  即"传了名字却出了别的模型"。已改成 v6 真键名 `sd_turbo/sdxl_anime/sdxl_light/animagine/sana06`，
+  并追加 `sdcpp/sdcpp_q8` 与新参数 `force_dtype`；health 文案也去掉了过期的「OpenVINO INT4」。
+- `scripts/colab_gen.sh` 用法文案与 `FORCE_DTYPE` 环境变量同步。
+
+**⚠️ 生效前提仍是开新副本**（F5 不重拉 GitHub）：File→Open notebook→GitHub→
+`examples/anima_colab.ipynb` → 跑 1→2→4 → 新 URL 写回 `~/.dsh/.colab-url`。
+**当前 runtime 跑的是 v6，还没有 `/sdcpp/build`**（`/health` 里看不到 `sdcpp_bin` 就是这个原因）。
+
+**待真机验证**：sdcpp 在 2 vCPU 上的 build 真实耗时、Q4_K 每步秒数（预期 10–20s/步 → 25 步 5–8 分钟）。
+
+---
+
 ## 五、凭据清单（全部 600 权限，**绝不 commit**）
 
 | 文件 | 内容 | 状态 |
@@ -499,7 +545,13 @@ AVX512_BF16 首次出现于 **Cooper Lake(2021)/Ice Lake+**；**Colab 免费档�
 
 - [x] **Colab CPU 档 v2 真机验证**：加载器可用（`cpu_ready:true` / `cpu_engine:diffusers-fp16`），
       optimum-intel 墙已绕过；但 fp16 推理慢到不可用（sd_turbo 4步512px >25min 未出图）→ 已出 v3
-- [ ] **★ SDXL 画质（用户明确要）**：先重开 notebook 跑 **cell1**（看 CPU 型号+bf16 判定）
+- [x] **★ bf16 判定（2026-10-18 13:17 真机拿到）**：`/health` → `cpu_bf16:false` → 免费档 CPU 无
+      `avx512_bf16`/`amx_bf16`，**bf16 路正式证伪**，v6 自动探测行为正确（跳过 bf16 直上 fp32）
+- [ ] **★ 重开 notebook 跑 v7（sdcpp）**：File→Open notebook→GitHub 开新副本 → 跑 1→2→4 →
+      新 URL 写回 `~/.dsh/.colab-url` → `GET /sdcpp/build` 预热（看 `/health` 的 `sdcpp_building/error`）
+      → `POST /generate {"cpu_preset":"sdcpp","width":832,"height":1216,"steps":25}` → 把
+      build 耗时、每步秒数、产物校验写进 4.9。**这是 CPU 上唯一能跑完 SDXL 的路**
+- [ ] **★ SDXL 画质（用户明确要）**：bf16 已证伪（上游结论见上一行），剩余两条：sdcpp(v7，待真机) / Modal 免费 GPU（`scripts/modal_sdxl.py`，需 `modal token new`）；先重开 notebook 跑 **cell1**（看 CPU 型号+bf16 判定）
       和 **cell8**（bf16/fp32/fp16 单步实测）→ 若 bf16 真快则 CPU 走 bf16；
       否则走 `scripts/sdcpp_colab.sh`（Q4_K 2.8GB，CPU 唯一能跑完 SDXL 的路）或 `scripts/modal_sdxl.py`（A10G 3s/张）
 - [ ] **★ Colab CPU 档 v3 待真机验证**：**必须开新副本**（F5 不重拉 GitHub，当前 runtime 还是 v2）

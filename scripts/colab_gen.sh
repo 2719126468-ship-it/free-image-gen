@@ -42,8 +42,10 @@ url: https://xxxx.trycloudflare.com  (printed by notebook cell 4)
 env: W H STEPS (图, 默认 832x1216/28 = animagine fp16 实测 ~30s)
      VW VH VSTEPS FRAMES VFPS (视频, 默认 1280x704/50/121帧/24fps)
      COLAB_URL OUTDIR
-     CPU_PRESET  CPU 档模型: sana06(默认) | sdxl_lightning | sdxl_anime(2.06GB 动漫SDXL)
-                 | animagine(6.18GB 重) | sd15_lcm(0.90GB 最快)
+     CPU_PRESET  CPU 档模型（键名必须与 notebook v6/v7 的 CPU_PRESETS 一致）:
+                 sd_turbo | sdxl_anime | sdxl_light | animagine | sana06
+                 | sdcpp(=Q4_K GGUF，2.8GB，CPU 上唯一能跑完 SDXL 的路) | sdcpp_q8
+     FORCE_DTYPE 强指精度 float32|float16|bfloat16（CPU 无 bf16 时 fp16 慢一个量级，慎用）
 
 video: 首次会触发 Colab 端下载 Wan2.2 权重(~10-20GB)；ref_image 走图生视频(I2V)
 EOF
@@ -123,12 +125,13 @@ single() {
   local QF; QF=$(mktemp "$TMPD/cg.XXXXXX")
 
   python3 - "$QF" "$PROMPT" "$NEG" "$W" "$H" "$STEPS" "$SEED" "${CPU_PRESET:-}" <<'PY'
-import sys, json
+import sys, json, os
 path, prompt, neg, w, h, steps, seed, preset = sys.argv[1:9]
 d = {'prompt': prompt, 'negative': neg,
      'width': int(w), 'height': int(h),
      'steps': int(steps), 'seed': int(seed)}
 if preset: d['cpu_preset'] = preset
+if os.environ.get('FORCE_DTYPE'): d['force_dtype'] = os.environ['FORCE_DTYPE']
 open(path, 'w').write(json.dumps(d))
 PY
 

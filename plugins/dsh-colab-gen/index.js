@@ -135,16 +135,24 @@ const PARAMETERS = {
     image_path: { type: 'string', description: 'video：I2V 参考图（须是 Colab 端路径，一般由 upload 返回）。' },
     cpu_preset: {
       type: 'string',
-      enum: ['sana06', 'sdxl_lightning', 'sdxl_anime', 'animagine', 'sd15_lcm'],
+      enum: ['sd_turbo', 'sdxl_anime', 'sdxl_light', 'animagine', 'sana06', 'sdcpp', 'sdcpp_q8'],
       description:
-        'CPU 档生图模型（GPU 档忽略此参数；权重体积为 HF repo 实测加总）：' +
-        'sana06 = SANA Sprint 0.6B DiT（默认，2.45GB，4 步 1024px，写实最好）；' +
-        'sdxl_lightning = dreamshaper-xl-lightning INT4（2.06GB，4 步 cfg2.0 ≤768px，SDXL 通用写实）；' +
-        'sdxl_anime = nova_xl_lcm INT4（2.06GB，8 步 cfg1.5 ≤1024px，SDXL 动漫向，你要的「2.7GB 那档」就是它）；' +
-        'animagine = animagine-xl-4.0-Lightning（实测 6.18GB，unet 只有 INT8、repo 名 INT4 是假的；' +
-        '4 步 guidance0 无 CFG，≤1024px，2vCPU 内存吃紧别用）；' +
-        'sd15_lcm = animemix v10 SD1.5 LCM INT4（0.90GB，8 步 cfg1.5 ≤512px，最小最快但画质天花板最低）。' +
-        '切换即重载模型（服务端有内存闸门，剩余 RAM 不够会直接报错而不是 OOM 崩会话）。',
+        'CPU 档生图模型（GPU 档忽略此参数）。★ 必须与 notebook v6 的 CPU_PRESETS 键名逐字一致：' +
+        '传未知名字会被服务端静默忽略并留在默认档 sdxl_anime（老版 schema 的 sdxl_lightning / sd15_lcm 已作废）。' +
+        'sd_turbo = stabilityai/sd-turbo（SD1.5，fp32 5.2GB，4 步 ≤768px，CPU 最快 109s/张）；' +
+        'sdxl_anime = sca255/nova_xl_lcm（SDXL 动漫，只有 fp16 权重 7.4GB，8 步 cfg1.5 ≤1024px，CPU 上只剩慢速 fp16 路）；' +
+        'sdxl_light = stabilityai/sdxl-turbo（SDXL，4 步 cfg0，≤768px）；' +
+        'animagine = cagliostrolab/animagine-xl-4.0（SDXL 动漫天花板，6.9GB，25 步 cfg7，≤1024px，要真 fp32 需 >12GB 空闲）；' +
+        'sana06 = Sana_Sprint_0.6B_1024px（7.7GB，4 步 cfg4.5，1024px 原生）；' +
+        'sdcpp = stable-diffusion.cpp + animagine-xl-4.0 Q4_K GGUF（2.8GB，ggml 原生 int kernel，' +
+        'CPU 上唯一能跑完 SDXL 的路；首次请求触发 clone+build，5-10 分钟）；sdcpp_q8 = 同款 Q8_0（4.18GB，画质略高）。' +
+        'dtype 有 CUDA→fp16 / CPU+avx512_bf16→bf16 / 否则→fp32；闸门不够会退 fp16（CPU 上慢一个量级）或直接报错。',
+    },
+    force_dtype: {
+      type: 'string',
+      enum: ['float32', 'float16', 'bfloat16'],
+      description: '强制 CPU 档权重精度，跳过自动选择（闸门仍生效）。CPU 无 avx512_bf16 时 fp16 慢一个量级' +
+        '（实测 588s/步），只在小图且 fp32 过不了闸门时才值得用。',
     },
     local_file: { type: 'string', description: 'upload：本地图文件路径，推给 Colab 供 I2V 使用。' },
     outdir: { type: 'string', description: `本地图/视频落盘目录，默认 ${DEFAULT_OUTDIR}。` },
@@ -186,7 +194,7 @@ function renderText(value) {
     if (h.gpu) {
       lines.push(`档位: GPU  ${h.gpu_name} (${h.vram_gb}GB)`)
     } else {
-      lines.push(`档位: CPU 档（OpenVINO INT4，当前预设 ${h.cpu_preset || '?'}；可切 ${Array.isArray(h.cpu_presets) ? h.cpu_presets.join('/') : 'sana06/sdxl_lightning/animagine/sd15_lcm'}）`)
+      lines.push(`档位: CPU 档（${h.cpu_engine || h.cpu_engine_mode || 'diffusers'}，bf16 硬件 ${h.cpu_bf16 ? '有' : '无'}，当前预设 ${h.cpu_preset || '?'}；可切 ${Array.isArray(h.cpu_presets) ? h.cpu_presets.join('/') : 'sd_turbo/sdxl_anime/sdxl_light/animagine/sana06'}）`)
     }
     lines.push(`队列: ${h.pending ?? '?'} 待处理 · 已建任务 ${h.jobs ?? 0} · 视频模型${h.video_loaded ? '已加载' : '未加载（按需下）'}`)
     if (value.url) lines.push(`URL: ${value.url}`)
@@ -228,6 +236,7 @@ async function doGenerate(baseUrl, args, signal) {
   }
   if (args.negative) payload.negative = args.negative
   if (!isVideo && args.cpu_preset) payload.cpu_preset = args.cpu_preset
+  if (!isVideo && args.force_dtype) payload.force_dtype = args.force_dtype
   if (isVideo) {
     payload.frames = args.frames || 121
     payload.fps = args.fps || 24
@@ -292,6 +301,7 @@ async function run(args, signal) {
       }
       if (args.negative) body.negative = args.negative
       if (args.cpu_preset && body.kind !== 'video') body.cpu_preset = args.cpu_preset
+      if (args.force_dtype && body.kind !== 'video') body.force_dtype = args.force_dtype
       const r = await httpJson(`${baseUrl}/batch`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
       }, 60000)
