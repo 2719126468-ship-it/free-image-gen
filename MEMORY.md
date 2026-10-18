@@ -513,7 +513,36 @@ AVX512_BF16 首次出现于 **Cooper Lake(2021)/Ice Lake+**；**Colab 免费档�
 - **意义**：至此 CPU 上 SDXL 的三条路全部判死（fp32 装不下 / fp16 慢 20 倍 / 放行也会打死 kernel），
   **sdcpp+GGUF 是唯一剩下的活路**（2.8GB mmap，不碰 diffusers 的加载峰值）。
 
-**待真机验证**：sdcpp 在 2 vCPU 上的 build 真实耗时、Q4_K 每步秒数（预期 10–20s/步 → 25 步 5–8 分钟）。
+#### 4.9.4 ✅ 预编译包在 Colab 上真能跑（省掉 10 分钟编译）+ v7.3 修 bin 查找（隧道 `semester-vast-explore-vital`）
+
+**v7.2 真机时间线（结论先行）**：
+- `POST /sdcpp/build` → 14:25–14:26:20 `/health` 一直是 `building:false / err:null`（**这是在下载 2.8GB GGUF**，
+  `building` 只在 `_sdcpp_build()` 内置真，下载阶段看不到 → 监视脚本不能只看 building）
+- 14:26:24 `building:true` → **1 秒后**回 `false`，`err:null`、`bin:null`
+- 提交 `cpu_preset:"sdcpp"` → job error：`RuntimeError: sdcpp 未就绪: sd-cli 不存在`
+
+**判定：预编译二进制其实成功了**（26MB zip → 解包 `/content/sdpre/` → `--help` rc=0，1 秒级；否则会走 cmake 那 5–10 分钟）。
+**glibc 担忧被实测推翻** —— 官方 Ubuntu 24.04 包在这台 Colab 上能跑，`_sdcpp_prebuilt()` 这条前置探测值回票价。
+
+**v7.2 的真 bug**：`_sdcpp_bin()` 只查 `SDCPP_ROOT/build/{bin/,}sd-cli` 和 `shutil.which('sd-cli')`，
+**不认 `SDCPP['bin']`、也不扫 `/content/sdpre/`** → 二进制明明就绪，`_sdcpp_warm()` 还返回 True，
+出图却报"sd-cli 不存在"。
+
+**v7.3 修法（一次到位）**
+1. `_sdcpp_bin()`：先认 `SDCPP['bin']` → 再查 build/ 三个位置 → 再 **walk `/content/sdpre/`** → 最后 `which`
+2. `_sdcpp_warm()` 收尾**验证**：`_sdcpp_bin()` 仍为空就抛 `构建结束但 _sdcpp_bin() 仍为空（看 sdcpp_log）`
+   —— 不再"返回 True 却没二进制"
+3. **`SDCPP['log']` 环形日志（40 条）+ `/health` 里的 `sdcpp_log` 末 12 条**：预编译/build/下载每一步都留痕，
+   一次 curl 就知道卡在哪（这轮就是吃了"只看得到 error=null"的亏）
+4. 预编译命中后**再软链一份到 `SDCPP_ROOT/build/bin/sd-cli`**，任何只认老路径的代码也能命中
+5. `/health` 增 `sdcpp_bin_kind`（prebuilt / source-build）、`sdcpp_gguf_exists`
+6. **新增 `POST /sh {"cmd":"..."}` 自救通道**（rc/stdout/stderr 回传）：改 cell 4 必须重开 notebook，
+   但"看文件在不在 / 跑一下二进制 / 看报错"这类排查不该再付一次用户重载成本
+
+**桩件 4/4 + 全格回归 12 项全过**：`sdpre/**` 被认出（复现并修掉 v7.2 的 bug）｜`SDCPP['bin']` 优先｜
+warm 无二进制时大声失败｜日志上限 40/末 12 条｜`/sh` 的 rc/stdout/stderr/空命令 400｜闸门与 sdcpp 分流无回归。
+
+**待真机验证**：Q4_K 在 2 vCPU 的每步秒数（预期 10–20s/步 → 25 步 5–8 分钟）、832×1216 产物校验。
 
 #### 4.9.2 ★ v7 真机首跑：v7 代码生效 + cmake 第一枪就炸（2026-10-18 14:05，隧道 `eyes-flux-cal-depth`）
 
