@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-18 10:20（第 7 次修订：v2 真机验证**加载器已通**（cpu_ready:true），但发现 **CPU 上 fp16 反而慢数倍** → v3 改 fp32 快路径 + 进度回写，HEAD `d0d01ae`）
+> 最后更新：2026-10-18 11:05（第 8 次修订：v3 真机拿到 **fp32 速度基线 17s/步**，但进度回调炸 NoneType.pop → v4 修回调契约 + BUILD 自证，HEAD `debd07c`）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -12,7 +12,7 @@
 - **运行环境**：Android 10 + Termux（无 root，arm64，Python 3.14，无 GPU）
 - **Git 仓库**：`~/free-image-gen`，远程 `github.com/2719126468-ship-it/free-image-gen`，分支 `main`，**每轮任务结束必须 commit + push**
 - **核心文档**：`docs/routes.md`（所有实测结论、错误原文、配额机制，1–12 节）
-- **当前 HEAD**：`d0d01ae`（★ Colab CPU 档 v3：fp32 快路径 + 进度回写；v2 `fbb4136` 已验证加载器可用）
+- **当前 HEAD**：`debd07c`（★ Colab CPU 档 v4：修 step 回调返回 dict + BUILD 版本字段；v3 已证 fp32 快路径可用 17s/步）
 
 ### 目录结构
 ```
@@ -322,7 +322,26 @@ RAM 压到 4GB 时 sana06 两档都被拦并给出明确指令 ✅
 开**新副本**才生效。现在这个 runtime 是 v2，那张 fp16 图要么等它自己跑完、要么直接开新副本重跑
 （单 worker 串行，队列没排空前热改全局函数对 in-flight 任务无效）。
 
-**待办**：v3 真机跑通后，把 `sd_turbo` 4步/512px 的实际秒数记进本节，作为 CPU 档速度基线。
+**✅ v3 真机结果（隧道 `lift-josh-arthur-connected`，`/health` 有 `cpu_slicing` 字段=确认新代码）**：
+提 `sd_turbo` 4步/512px → `/status` 回 `progress:"1/4" elapsed:17.3` 后 **error**：
+```
+AttributeError: 'NoneType' object has no attribute 'pop'
+```
+- **两个结论**：
+  1. 🎯 **速度基线拿到了：fp32 约 17s/步** → sd_turbo 4步/512px 全图 ≈ **70s**。
+     对比 v2 的 fp16 跑 **35 分钟没出图** → **「CPU 走 fp32 快路径」判断完全正确**，这面墙绕过了。
+  2. 🐛 进度回调把任务炸了：diffusers 对回调返回值做 `callback_outputs.pop('latents',...)`，
+     **回调必须原样返回 kwargs dict**，v3 的 `_prog` 返回 None → 直接 AttributeError。
+- **v4 已修（HEAD `debd07c`）**：`_prog` 返回 `cb_kwargs`（非 dict 退 `{}`）+ 整段包 try
+  （进度上报永不影响出图）；最后一步 `step==n-1` 也上报（原每2步一次，4步任务永停 3/4）；
+  `/health` 加 `build` 字段自证版本。集成测试 4 组全过（完整渲染到 4/4、无 _jid 不造假 job、
+  黑图 mean<6 报错、set_job 抛异常仍出图）。
+- **⚠️ 但 v4 同样需要开新副本才生效**（F5 不重拉 GitHub + cell4 幂等复用旧 Flask）。
+  当前 runtime 是 v3，那张 sd_turbo 已 error，队列空。
+
+**CPU 档速度现实**：fp32 ≈ 17s/步（sd_turbo 512px）。SDXL 档（sdxl_anime 8步/animagine 25步）
+按此推算 8步≈2.3min、25步≈7min+，且 SDXL unet 比 SD1.5 大得多、单步更慢 → **CPU 档只适合
+sd_turbo 这类少步小图快速验证，正式出图仍等 GPU 恢复切 animagine 30s/张**。
 
 #### 🔴 2026-10-18 09:26 实测（已修，见上节）：Colab **CPU 档整条路是坏的**
 
