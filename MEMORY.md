@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-18 09:30（第 5 次修订：**Colab CPU 档整条路实测报废**（OVDiffusionPipeline 导入失败）+ **Horde >845² 动态 403** + 本机无 numpy）
+> 最后更新：2026-10-18 09:55（第 6 次修订：**Colab CPU 档根因定位并重写为纯 diffusers fp16**（HEAD `fbb4136`，桩件 5/5 通过））
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -12,7 +12,7 @@
 - **运行环境**：Android 10 + Termux（无 root，arm64，Python 3.14，无 GPU）
 - **Git 仓库**：`~/free-image-gen`，远程 `github.com/2719126468-ship-it/free-image-gen`，分支 `main`，**每轮任务结束必须 commit + push**
 - **核心文档**：`docs/routes.md`（所有实测结论、错误原文、配额机制，1–12 节）
-- **当前 HEAD**：`df7aa23`（MEMORY 新增 4.7 Colab 线；notebook 代码最后一次改动在 `1031eb5` = cell4 幂等化）
+- **当前 HEAD**：`fbb4136`（★ Colab CPU 档重写：脱离 optimum-intel，改纯 diffusers fp16 + RAM 闸门）
 
 ### 目录结构
 ```
@@ -245,7 +245,49 @@ DSH 插件工具名 `colab_gen`（action 同名）。**插件代码改了要重�
 - animagine-xl-4.0 权重（6.94GB）下载过一次，同 runtime 内免重下；runtime 没了要重下 ~8 分钟
 - **下一步**：CPU 档先跑 sana06 出图（notebook 自动分流，客户端无感）；GPU 恢复后切回 animagine 30s/张
 
-#### 🔴 2026-10-18 09:26 实测：Colab **CPU 档整条路是坏的**（新墙，别再撞）
+#### ✅ 2026-10-18 09:50 已修复：Colab CPU 档重写（HEAD `fbb4136`）
+
+**根因（静态分析 optimum-intel 2.2.0 wheel 坐实，不是版本冲突、也不是"权重没下完"）**：
+```
+optimum/intel/openvino/__init__.py
+  L84  from .modeling_open_clip import ...        ← 无 is_open_clip_available() 门
+  L97  from .modeling_text2speech import ...      ← 无门，内部拉 kokoro
+```
+`import optimum.intel` 会硬拉 **open_clip / kokoro / timm / sentence_transformers**，
+Colab 镜像一个都没装 → 底层 ModuleNotFoundError 被 `transformers._LazyModule`
+重写成那句误导性的 `Could not import module 'OVDiffusionPipeline'.
+Are this object's requirements defined correctly?`
+→ **换任何 cpu_preset 都炸**，补装哪个包都追不完（闭包里还有一串无门 import）。
+
+**修法：CPU 档彻底不碰 optimum-intel，改纯 diffusers fp16**
+- 5 个新预设（体积走 HF blobs API 实测，`ram_gb` 是加载预算）：
+  | preset | 仓库 | cls | steps/cfg | ≤px | fp16 预算 |
+  |---|---|---|---|---|---|
+  | `sdxl_anime`(默认) | sca255/nova_xl_lcm | SDXL | 8 / 1.5 | 1024 | 7.4GB |
+  | `sd_turbo` | stabilityai/sd-turbo | SD1.5 | 4 / 0.0 | 768 | **2.6GB**（RAM 紧就它）|
+  | `sdxl_light` | stabilityai/sdxl-turbo | SDXL | 4 / 0.0 | 768 | 6.9GB |
+  | `animagine` | cagliostrolab/animagine-xl-4.0 | SDXL | 25 / 7.0 | 1024 | 6.9GB |
+  | `sana06` | Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers | SanaSprint | 4 / 4.5 | 1024 | 7.7GB |
+- **仓库必须带 fp16 变体**才敢在 12.6GB RAM 上跑：nova_xl_lcm 只有 fp16（7.33GB）✅；
+  animagine-xl-4.0 无 fp16（plain 6.94GB，diffusers 会先下 fp32 再转 → 峰值按 fp32 计）
+- `CPU_ENGINE='openvino'` 保留为可选实验档，失败自动降级 diffusers 并打印原因
+- 纯 CPU runtime **不再调 `enable_model_cpu_offload`**（无 accelerator 直接抛 ValueError），
+  改 `.to('cpu')` + attention slicing + vae slicing/tiling
+- RAM 闸门：预算不够直接报错并提示换 `sd_turbo`，不再 OOM 把会话打死
+- CPU 分支加黑图判定（mean<6 报错）、`steps/guidance/seed` 可覆盖
+- `/health` 新增 `cpu_engine` / `cpu_engine_mode`；cell 1 去掉 `optimum-intel openvino` 强装
+
+**桩件实测（本机 exec + 假 diffusers/psutil，5/5 通过）**：默认档加载 fp16+variant=fp16 ✅、
+animagine 不传 variant ✅、RAM 剩 4GB 拦下 sana06 并给出正确措辞
+`float16 权重需 ~7.7GB RAM，当前只剩 4.0GB -> 换更小的 cpu_preset（sd_turbo 只要 2.6GB）` ✅、
+openvino 模式失败自动降级 ✅、预设表字段完整 ✅。语法终检 7/7 格通过。
+
+**⚠️ 生效前提**：Colab 的 **F5 不会重拉 GitHub**。必须 File→Open notebook→GitHub→贴
+`https://github.com/2719126468-ship-it/free-image-gen/blob/main/examples/anima_colab.ipynb`
+开**新副本**，重跑 cell 1→2→4（CPU 档跳过 cell 3），新 URL 再写回 `~/.dsh/.colab-url`。
+旧标签页跑的还是旧代码 —— 现在隧道上那个 runtime 就是旧的（`cpu_error` 仍是那句 OVDiffusionPipeline）。
+
+#### 🔴 2026-10-18 09:26 实测（已修，见上节）：Colab **CPU 档整条路是坏的**
 
 - 提交 `POST /generate {cpu_preset:"sdxl_anime", 768x1024, steps:8}` → job 入队正常，
   30s 后 `/status/<jid>` 返回：
@@ -317,6 +359,9 @@ DSH 插件工具名 `colab_gen`（action 同名）。**插件代码改了要重�
 
 ## 八、待办 / 下一步
 
+- [ ] **★ Colab CPU 档修复已入库，待真机验证**：新标签页开 notebook（GitHub 新副本，F5 无效）
+      → 跑 cell 1→2→4 → 新 URL 写回 ~/.dsh/.colab-url → 提交 `cpu_preset:"sd_turbo"` 出第一张
+      （2.6GB 最省 RAM，先证明通路，再试 sdxl_anime/animagine）。成功则把本条改 [x] 并记耗时
 - [ ] **★ Colab 线（当前主力）**：GPU 配额耗尽中，恢复后：
       ① 新标签页开 notebook（File→Open notebook→GitHub，别用旧标签）② 跑 1→2→3→4
       ③ 新 URL 更新 `~/.dsh/.colab-url` ④ cell 5 自测一张 832×1216@28（应 ~30s）⑤ cell 6 批量
