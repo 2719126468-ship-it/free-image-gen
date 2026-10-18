@@ -495,6 +495,24 @@ AVX512_BF16 首次出现于 **Cooper Lake(2021)/Ice Lake+**；**Colab 免费档�
 `examples/anima_colab.ipynb` → 跑 1→2→4 → 新 URL 写回 `~/.dsh/.colab-url`。
 **当前 runtime 跑的是 v6，还没有 `/sdcpp/build`**（`/health` 里看不到 `sdcpp_bin` 就是这个原因）。
 
+#### 4.9.3 🔴 v7.1 真机补充：diffusers SDXL 在 CPU 上是**不可能**，不只是慢（隧道 `eyes-flux-cal-depth`）
+
+`POST /generate {cpu_preset:"animagine", 512×768, steps 12}` → 旧闸门**放行**（需 8.6+0.8=9.4 ≤ 11.6），
+然后：
+```
+14:14:34  avail_ram_gb 9.6   (加载中)
+14:15:19  avail_ram_gb 5.8   (继续吃)
+14:16:02  HTTP 1033 → 14:18:30 起永久 HTTP 530   = Flask 源站已死 → Colab kernel 被打死
+```
+- **结论：animagine(6.9GB)·sana06(7.7GB) fp32 在 12.6GB 总量 / 11.6GB 可用的免费档上会把 kernel 打死**，
+  与 `avail_ram_gb` 的闸门判断无关 —— 权重之外还有 **1.5 倍瞬时峰值**（`from_pretrained` 读 safetensors
+  再拷一份到模块，最大组件双份）。sd_turbo(5.2GB) 是唯一能活下来的档。
+- **v7.2 修法**：`peak = need × 1.5 + act`（1.5x = 加载瞬时双份），闸门宁严不宽 ——
+  被拦只损失一次请求，放行错误就是整台 runtime 死。桩件复测：sana06 1024²@10.7 直接拒绝（旧版退 fp16 30 分钟/张）、
+  sd_turbo 512×768@11.6 仍放行、sdxl_anime 两档都被拦并给可读错误、`force_dtype` 生效、sdcpp 分流、diffusers 无回归。
+- **意义**：至此 CPU 上 SDXL 的三条路全部判死（fp32 装不下 / fp16 慢 20 倍 / 放行也会打死 kernel），
+  **sdcpp+GGUF 是唯一剩下的活路**（2.8GB mmap，不碰 diffusers 的加载峰值）。
+
 **待真机验证**：sdcpp 在 2 vCPU 上的 build 真实耗时、Q4_K 每步秒数（预期 10–20s/步 → 25 步 5–8 分钟）。
 
 #### 4.9.2 ★ v7 真机首跑：v7 代码生效 + cmake 第一枪就炸（2026-10-18 14:05，隧道 `eyes-flux-cal-depth`）
