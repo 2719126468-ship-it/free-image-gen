@@ -575,6 +575,50 @@ tail 留痕｜失败时 tail 双写（job error + sdcpp_log）。
 
 **下一步（真机）**：512×768 / 15 步首跑验证端到端 → 再逐步抬到 768 长边、开 `--flash-attn on` 试速度。
 
+#### 4.9.6 🔴 512×768 也撑不住 + **拿到 sd.cpp 的硬速度数字**（隧道 `handle-hose-combining-converted`）
+
+**sdcpp 加载依旧 45 秒**（prebuilt + 2.8GB GGUF），`/sh` 里 `nproc=2`、`/` 87G。
+**首次拿到真实进度**（v7.4 的 `` 解析生效）：
+```
+15:09:19  progress 1/15  elapsed 332.3  last_line "|===> | 1/15 - 163.30s/it"
+15:11:42  progress 2/15  elapsed 488.7   （第 2 步 156.4s）
+15:13:15 起 /status 空 → 15:21 /health 永久 530
+```
+- **硬数字：sdcpp Q4_K / SDXL / 512×768 / `-t 2` ≈ 160s/步**
+  → 15 步 ≈ 40 分钟，20 步 ≈ 53 分钟
+- **第 2 步后源站再次消失**。两次死亡都发生在"重算力持续 7 分钟"之后，怀疑不是纯 OOM，
+  而是 **2 vCPU 被 sd-cli 100% 吃满 → cloudflared 心跳掉队 → CF 端把 quick tunnel 判死**（1033 → 530）
+
+**v7.5（已 push）四项**
+1. **`-t` 默认 `nproc-1`**（2 vCPU → `-t 1`，留一核给 Flask/cloudflared）+ `os.nice(10)`
+2. **`--flash-attn on` 默认开**，若上游报不支持 → **自动去掉重跑一次**（`flash_attn` 参数可关）
+3. **产物保全**：出图后 ① 复制到 `/content/drive/MyDrive/sdcpp_out/`（Drive 挂着就存档，隧道死了也不丢）
+   ② 试传 `0x0.st` 拿临时直链，写进 `SDCPP['last_url']` / `/health.sdcpp_last_url`
+4. `threads` / `mem_cap_gb` / `max_side` / `sdcpp_args` 全部请求级可调
+
+**桩件 2/2**：2 vCPU 场景 `-t 1` + flash-attn on + `\r` 进度｜flash-attn 不支持时自动重跑并出图。
+
+#### 📊 CPU vs GPU：今天所有路线的硬数字（2026-10-18 全部真机）
+
+| 路线 | 每步 | 一张图 | 结论 |
+|---|---|---|---|
+| `sd_turbo` fp32（SD1.5 512×768） | 27s | ~2 分钟 | 能跑，**画质被用户否** |
+| `sana06` fp16（1024²） | 345–588s | ≥40 分钟 | 判死（VAE 解码再 +20 分钟） |
+| **sdcpp Q4_K（SDXL 512×768, `-t 2`）** | **160s** | **~53 分钟（20 步）** | **能跑但不可用**；`-t 1` 更慢 |
+| Colab GPU `animagine` fp16 | — | **30 秒** | 配额耗尽中，等恢复 |
+| AI Horde `Animagine XL` | — | 排队 ~19 分钟 | 免费、无审查、640×960 上限（≤845² 面积） |
+
+**结论（写进待办，别再绕）**：**Colab 免费 CPU（2 vCPU）不是 SDXL 的可用平台** ——
+三条路（diffusers fp32 装不下还打死 kernel / diffusers fp16 慢 20 倍 / sdcpp 160s 一步）都验证完了。
+SDXL 画质今天只有两条路：**GPU（Colab 配额恢复，或换 Kaggle）** 或 **Horde**。
+
+**★ 新增候选路线：Kaggle Notebooks**（未实测，但 notebook 已可移植）：
+免费 **30 GPU 小时/周**（P100 16GB / T4×2），比 Colab 免费档稳。
+`examples/anima_colab.ipynb` 无需改动即可跑 —— cell 2 的 `OUT_DIR = '/content/out' if IN_COLAB else './out'`、
+cell 4 的 `SDCPP_DIR = '/content' if isdir else abspath('.')` 已经做了回退；
+Kaggle 上只要开 Internet + 在 cell 1 装 diffusers/transformers/flask/flask-cors 即可，
+cloudflared 仍走 quick tunnel。**下一步优先试这个，而不是继续优化 CPU 档。**
+
 #### 4.9.2 ★ v7 真机首跑：v7 代码生效 + cmake 第一枪就炸（2026-10-18 14:05，隧道 `eyes-flux-cal-depth`）
 
 **v7 确认在跑**：`/health` → `build:"v7"`、`cpu_presets` 含 `sdcpp/sdcpp_q8`、`sdcpp_*` 字段齐、
