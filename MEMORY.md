@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-18 11:35（第 9 次修订：**v4 真机端到端跑通**，CPU 档首次出图（sd_turbo fp32 77s/张）+ 色图 done；但 sana06 切档疑似撑爆 RAM 致隧道 530 死）
+> 最后更新：2026-10-18 11:52（第 10 次修订：**v5 真机交付两张无审查色图**（sd_turbo fp32 512×768 ~110s/张，本机落盘验证）；隧道提第三张时 1033 死，前两张已拉回）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -12,7 +12,7 @@
 - **运行环境**：Android 10 + Termux（无 root，arm64，Python 3.14，无 GPU）
 - **Git 仓库**：`~/free-image-gen`，远程 `github.com/2719126468-ship-it/free-image-gen`，分支 `main`，**每轮任务结束必须 commit + push**
 - **核心文档**：`docs/routes.md`（所有实测结论、错误原文、配额机制，1–12 节）
-- **当前 HEAD**：`debd07c`（★ Colab CPU 档 v4：**真机端到端跑通**，sd_turbo fp32 出图 77s/张；隧道已死待重开）
+- **当前 HEAD**：`7b47688`（★ Colab CPU 档 v5：**真机交付色图成功**，sd_turbo fp32 ~110s/张；RAM 闸门纳入 act 峰值）
 
 ### 目录结构
 ```
@@ -367,8 +367,25 @@ CPU 档第一次真正出图，`cpu_engine:"diffusers-float32"` / `cpu_ready:tru
   **判定隧道是否真死**：`curl -w "%{http_code}"` 看是不是 530 + `content_type` 是不是 text/html，
   别只看有没有字节数（拦截页也有 7734B）。
 
-**当前状态**：隧道 `arbitrary-broadband-board-bras` 已死，需重开 notebook（v4 代码已在 GitHub main）。
-`~/.dsh/.colab-url` 是死地址。色图通路已验证可用，重开后先跑 sd_turbo 出 NSFW 再拉回。
+**✅✅✅ v5 真机完全跑通并交付色图（隧道 `carlo-plumbing-exceed-watt`，`/health` 回 `build:"v5"`）**
+全程单 preset `sd_turbo`（不切档 → 不触发 RAM 叠加雷区），两张无审查色图真机出图 + 拉回本机落盘：
+
+| 图 | 配置 | progress | 推理 elapsed | 含首载 total | 本机文件 | 校验 |
+|---|---|---|---|---|---|---|
+| 1 | sd_turbo 512×768 steps4 | 4/4 | **112.9s** | 269.6s | `~/th-img/colab_v5_nsfw.png` 744191B | 512×768 luma=136.1 sd=63.1 ✅真图 |
+| 2 | sd_turbo 512×768 steps4 | 4/4 | **108.6s** | 181.3s | `~/th-img/colab_v5_nsfw2.png` 758232B | 512×768 luma=133.5 sd=63.4 ✅真图 |
+
+- **CPU 档速度基线钉死：sd_turbo fp32 512×768 ≈ 109–113s/张（4步）**。
+  首张 total 269.6s 含下 2.6GB 权重+编译；第二张 181.3s（命中内存，省下载）。
+- v5 的 RAM 闸门（权重+act_gb）没被触发拦截 —— 因为全程 sd_turbo（fp32 权重5.2+act2.5=7.7GB < 11GB 可用），
+  验证了「单 preset 不切档」是 CPU 档最稳用法。
+- **隧道在提第三张时死**：`Error 1033`（cloudflared 连不上 CF 边缘，非源站 OOM）——
+  quick tunnel 固有脆弱性，与 notebook 代码无关。前两张已在死前拉回，不受影响。
+- **交付纪律固化**：`/result/<jid>` 拿到后**立刻** curl 落盘（带 4 次重试），别攒着批量拉
+  —— 上次 sana06 就是图 done 了但隧道先死，结果丢在 /content 拉不回。
+
+**结论：Colab CPU 档 v5 已可实用**（sd_turbo 应急通路，~2min/张无审查）。
+GPU 恢复后仍优先 animagine 30s/张（画质高得多）。重开 notebook 用 GitHub main（v5，`7b47688`）。
 
 #### 🔴 2026-10-18 09:26 实测（已修，见上节）：Colab **CPU 档整条路是坏的**
 
