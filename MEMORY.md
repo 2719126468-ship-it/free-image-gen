@@ -501,10 +501,12 @@ AVX512_BF16 首次出现于 **Cooper Lake(2021)/Ice Lake+**；**Colab 免费档�
 
 **① Colab CPU fp16 全程记时（sana06 1024² 4 步，隧道 `kick-trio-years-antenna`）**：
 `progress 1/4 @588.4s` → `3/4 @1277.4s` → `4/4 @1627.4s`（第 1 步含编译预热，之后 **~345s/步**），
-到 1900s+ 仍是 `4/4 running`（VAE 解码 fp16 也在慢路上）。**即一张 1024² 4 步图 ≈ 30 分钟。**
+到 **2400s+ 仍卡在 `4/4 running`** —— **fp16 的 VAE 解码在 1024² 上比采样还慢**，整张图真实耗时 ≥40 分钟。**CPU fp16 档彻底判死。**
 → 与 4.9 结论一致：CPU 上 fp16 不是可用档，只是"能跑完"。
 
-**② AI Horde 拿到真 SDXL（免费、无审查、零 pollen）**：
+**② AI Horde 拿到真 SDXL（免费、无审查、零 pollen）**
+（两条都成功：`horde_771001_640x960.png` Animagine XL 663371B luma155.6 sd55.6；
+`horde_771002_640x960.png` AlbedoBase XL 615021B luma118.2 sd70.1；排队各约 19 分钟）：
 `Animagine XL`（SDXL 动漫天花板）640×960 / 28 步 / k_euler，排队 331 → 0，
 **1127s 出图**，产物 `~/th-img/horde_771001_640x960.png` **663371B / 640×960 / luma 155.6 / stddev 55.6**（真图）。
 - ⚠️ 与 4.3 的旧记录吻合：**面积 ≤845² 才不被 403**（640×960=614400 < 714025 ✅）
