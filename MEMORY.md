@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-18 09:55（第 6 次修订：**Colab CPU 档根因定位并重写为纯 diffusers fp16**（HEAD `fbb4136`，桩件 5/5 通过））
+> 最后更新：2026-10-18 10:20（第 7 次修订：v2 真机验证**加载器已通**（cpu_ready:true），但发现 **CPU 上 fp16 反而慢数倍** → v3 改 fp32 快路径 + 进度回写，HEAD `d0d01ae`）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -12,7 +12,7 @@
 - **运行环境**：Android 10 + Termux（无 root，arm64，Python 3.14，无 GPU）
 - **Git 仓库**：`~/free-image-gen`，远程 `github.com/2719126468-ship-it/free-image-gen`，分支 `main`，**每轮任务结束必须 commit + push**
 - **核心文档**：`docs/routes.md`（所有实测结论、错误原文、配额机制，1–12 节）
-- **当前 HEAD**：`fbb4136`（★ Colab CPU 档重写：脱离 optimum-intel，改纯 diffusers fp16 + RAM 闸门）
+- **当前 HEAD**：`d0d01ae`（★ Colab CPU 档 v3：fp32 快路径 + 进度回写；v2 `fbb4136` 已验证加载器可用）
 
 ### 目录结构
 ```
@@ -287,6 +287,43 @@ openvino 模式失败自动降级 ✅、预设表字段完整 ✅。语法终检
 开**新副本**，重跑 cell 1→2→4（CPU 档跳过 cell 3），新 URL 再写回 `~/.dsh/.colab-url`。
 旧标签页跑的还是旧代码 —— 现在隧道上那个 runtime 就是旧的（`cpu_error` 仍是那句 OVDiffusionPipeline）。
 
+#### ✅✅ 2026-10-18 10:15 真机验证：加载器通了，但撞第二面墙 —— **CPU 上 fp16 是反向优化**（HEAD `d0d01ae`）
+
+**新隧道 `scientific-italiano-quilt-minnesota` 跑的是 v2 代码，`/health` 确认新结构生效**：
+`cpu_engine_mode:"diffusers"`、`cpu_presets` 换成 5 个新档、`cpu_error:null`
+→ 提 `cpu_preset:"sd_turbo"` 后 **`cpu_ready:true` / `cpu_engine:"diffusers-fp16"`**
+**= optimum-intel 那座墙确实绕过了，重写方向正确。**
+
+**但同一张图（sd_turbo，4 步 / 512×512）跑了 25+ 分钟没出图。**
+根因：**PyTorch CPU 的 fp16 matmul 是逐算子升 fp32 模拟的，比 fp32 慢数倍**。
+我 v2 为了省 RAM 把 fp16 排第一，方向正好反了。
+
+**v3 修法（`d0d01ae`）**：
+- dtype 顺序按设备定：**无 CUDA → fp32 优先**（fp32 过不了 RAM 闸门才退 fp16）；有 CUDA → fp16 优先
+- `variant='fp16'` 只在真要加载 fp16 权重时传
+- 纯 CPU **不开** `enable_attention_slicing` / `vae_tiling`（省的是显存，CPU 上纯减速）；需要时手动 `CPU_SLICING=True`
+- `torch.set_num_threads(os.cpu_count())`：桩件显示默认只吃 2 线程
+- 渲染加 `callback_on_step_end` 回写 `progress`/`elapsed` → **能区分「慢」和「卡死」**（这次就是吃了没进度的亏，只能靠轮询猜）
+- 闸门拦下 fp32 后 `continue` 试 fp16（v2 的 `break` 会直接抛错，失去降级机会）
+- `sdxl_anime` 补 `float32:14.7` 预算（nova_xl_lcm 只有 fp16 权重，转 fp32 体积翻倍）
+- `engine` 标签记实际 dtype（v2 里 fp32 也误标 `diffusers-fp16`）
+
+**桩件实测（本机 exec + 假 diffusers/psutil，6 组）**，11GB 可用 RAM 下各档最终 dtype：
+| preset | 最终 dtype | 说明 |
+|---|---|---|
+| `sd_turbo` | **fp32** | 2.6GB，最快通路，先拿它证明端到端 |
+| `animagine` | **fp32** | 6.9GB |
+| `sana06` | **fp32** | 7.7GB |
+| `sdxl_anime` | fp16（自动降级） | fp32 要 14.7GB > 11GB，闸门拦下后降 fp16 |
+| `sdxl_light` | fp16（自动降级） | 同上 |
+RAM 压到 4GB 时 sana06 两档都被拦并给出明确指令 ✅
+
+**⚠️ 关键操作提醒**：Colab **F5 不重拉 GitHub**，改 notebook 后必须 File→Open notebook→GitHub
+开**新副本**才生效。现在这个 runtime 是 v2，那张 fp16 图要么等它自己跑完、要么直接开新副本重跑
+（单 worker 串行，队列没排空前热改全局函数对 in-flight 任务无效）。
+
+**待办**：v3 真机跑通后，把 `sd_turbo` 4步/512px 的实际秒数记进本节，作为 CPU 档速度基线。
+
 #### 🔴 2026-10-18 09:26 实测（已修，见上节）：Colab **CPU 档整条路是坏的**
 
 - 提交 `POST /generate {cpu_preset:"sdxl_anime", 768x1024, steps:8}` → job 入队正常，
@@ -359,9 +396,11 @@ openvino 模式失败自动降级 ✅、预设表字段完整 ✅。语法终检
 
 ## 八、待办 / 下一步
 
-- [ ] **★ Colab CPU 档修复已入库，待真机验证**：新标签页开 notebook（GitHub 新副本，F5 无效）
-      → 跑 cell 1→2→4 → 新 URL 写回 ~/.dsh/.colab-url → 提交 `cpu_preset:"sd_turbo"` 出第一张
-      （2.6GB 最省 RAM，先证明通路，再试 sdxl_anime/animagine）。成功则把本条改 [x] 并记耗时
+- [x] **Colab CPU 档 v2 真机验证**：加载器可用（`cpu_ready:true` / `cpu_engine:diffusers-fp16`），
+      optimum-intel 墙已绕过；但 fp16 推理慢到不可用（sd_turbo 4步512px >25min 未出图）→ 已出 v3
+- [ ] **★ Colab CPU 档 v3 待真机验证**：**必须开新副本**（F5 不重拉 GitHub，当前 runtime 还是 v2）
+      → cell 1→2→4 → 新 URL 写回 ~/.dsh/.colab-url → 提 `cpu_preset:"sd_turbo"`（现在走 fp32）
+      → 看 `/status/<jid>` 的 `progress`/`elapsed` 判断真实速度，把秒数记进 4.7 节
 - [ ] **★ Colab 线（当前主力）**：GPU 配额耗尽中，恢复后：
       ① 新标签页开 notebook（File→Open notebook→GitHub，别用旧标签）② 跑 1→2→3→4
       ③ 新 URL 更新 `~/.dsh/.colab-url` ④ cell 5 自测一张 832×1216@28（应 ~30s）⑤ cell 6 批量
