@@ -244,6 +244,32 @@ DSH 插件工具名 `colab_gen`（action 同名）。**插件代码改了要重�
 - ⚠️ `cpu_ready:false` 且 `cpu_preset:sana06`：CPU 侧 OpenVINO 权重**尚未加载**，第一张图会先触发下载再出图（分钟级）；`cpu_error:null`、`video_error:null`
 - animagine-xl-4.0 权重（6.94GB）下载过一次，同 runtime 内免重下；runtime 没了要重下 ~8 分钟
 - **下一步**：CPU 档先跑 sana06 出图（notebook 自动分流，客户端无感）；GPU 恢复后切回 animagine 30s/张
+
+#### 🔴 2026-10-18 09:26 实测：Colab **CPU 档整条路是坏的**（新墙，别再撞）
+
+- 提交 `POST /generate {cpu_preset:"sdxl_anime", 768x1024, steps:8}` → job 入队正常，
+  30s 后 `/status/<jid>` 返回：
+  ```
+  ModuleNotFoundError: Could not import module 'OVDiffusionPipeline'.
+  Are this object's requirements defined correctly?
+  ```
+- 根因：`optimum.intel` 在当前 Colab 镜像里导入失败（OpenVINO 运行时/版本不匹配），
+  **5 个 cpu_preset 全走同一入口 → 全废**。`/health` 的 `cpu_ready:false` 就是这个意思，
+  不是"还在下载权重"（原判读有误，已更正）。换 preset / 重提交都没用，要修得改 notebook
+  的 `load_cpu_pipe()`（pin `optimum-intel`+`openvino` 版本，或退回 diffusers fp16 CPU 直跑）
+- **推论**：GPU 配额耗尽期间 Colab 线**完全不可用**（video 也 `kind=video and not HAS_GPU → 400`）。
+  这段时间出图只能走 Pollinations 匿名 / AI Horde / Cloudflare 等本机路线
+
+#### 🔴 2026-10-18 09:27 实测：AI Horde **>845px 直接 403**（匿名档）
+
+- `HORDE_W=832 HORDE_H=1216` → 四个模型全 403，原文：
+  `Due to heavy demand, for requests over 845x845 or over the applicable first-order-equivalent sampler work bu...`
+  （**832×1216 面积 1,011,712 > 845² = 714,025**，被"一阶等效算力"卡掉，不是单边超 845）
+- 降到 **512×768（393,216）即可提交**，实测 `AbsoluteReality queue=258 wait=531s`
+- ⚠️ 与 4.3 节旧记录冲突：昨天 10 模型并行是 **832×1216 成功**的（Flat-2D 735s 出图）。
+  说明该 403 是**按当前负载动态生效**的限流，不是固定规则 → 高峰期一律用 ≤845² 面积
+- 本机 `python3` **没有 numpy**（`ModuleNotFoundError: No module named 'numpy'`）→
+  黑图/亮度判定改用 PIL：`im.convert('L')` + `ImageStat.Stat(im).mean[0]`，别写 numpy
 - 视频（Wan2.2 TI2V-5B）从未实测成功，权重 10-20GB 会加剧 RAM/时间压力，**优先级放后**
 ---
 
