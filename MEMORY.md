@@ -497,6 +497,36 @@ AVX512_BF16 首次出现于 **Cooper Lake(2021)/Ice Lake+**；**Colab 免费档�
 
 **待真机验证**：sdcpp 在 2 vCPU 上的 build 真实耗时、Q4_K 每步秒数（预期 10–20s/步 → 25 步 5–8 分钟）。
 
+#### 4.9.2 ★ v7 真机首跑：v7 代码生效 + cmake 第一枪就炸（2026-10-18 14:05，隧道 `eyes-flux-cal-depth`）
+
+**v7 确认在跑**：`/health` → `build:"v7"`、`cpu_presets` 含 `sdcpp/sdcpp_q8`、`sdcpp_*` 字段齐、
+**`avail_ram_gb: 11.6`**（12.7GB 总量下真实可用值，终于不用猜了）。
+
+**`POST /sdcpp/build` 45s 后回报（原文）**：
+```
+cmake configure 失败(rc=1):
+CMake Error at CMakeLists.txt:179 (message):
+  SD_WEBM requires SD_WEBP because WebM output reuses libwebp VP8 encoding.
+```
+→ **cmake 开关是联动的**：只给 `-DSD_WEBP=OFF` 会被上游 FATAL_ERROR 拒（SD_WEBM 默认 ON）。
+这是 v7 的原生 bug（v7 只关了 WEBP），与 sdcpp 本身无关。
+
+**v7.1（同一 runtime 无法热修，必须再开新副本）**：
+- cmake 三组开关**依次回退**：`SD_WEBP=OFF+SD_WEBM=OFF` → `SD_WEBP=ON+SD_WEBM=OFF` → 裸 `Release`；
+  每轮先 `rmtree(build)` 清脏缓存，三组全败才抛错
+- 新增 **预编译探测** `_sdcpp_prebuilt()`：取 GitHub release 的 `Linux*x86_64*.zip`（26MB，非 vulkan/rocm），
+  解包后 **用 `--help` 实测 rc** —— 能跑就省掉 10 分钟编译（Colab 22.04 vs 官方包 24.04 的 glibc 差，
+  大概率不行，但试错成本 26MB，值得），跑不动立刻回落源码构建
+- 预热顺序改成**先下 GGUF 再编译**（编译炸了权重也不白等）
+- `BUILD='v7.1'` 自证（`/health` 一眼看出跑的是哪版）
+
+**桩件实测 4/4**（假 `_sdcpp_run`/假 `shutil`）：预编译可用时零编译直返｜cmake 三组回退序列正确
+（前两组故意抛 SD_WEBM 错、第三组过）｜预热顺序 = gguf → build｜终态能找到 `build/bin/sd-cli`。
+
+**教训（写进纪律）**：改 notebook 的**任何**外部命令行参数，先在本地把上游 CMakeLists/options 表读完再推；
+`-DSD_WEBP=OFF` 这种"看起来显然"的开关，漏了联动项就是一次用户重载成本。
+**待真机验证**：sdcpp 在 2 vCPU 上的 build 真实耗时、Q4_K 每步秒数（预期 10–20s/步 → 25 步 5–8 分钟）。
+
 #### 4.9.1 同轮的两条真图产出（2026-10-18 13:17–14:05）
 
 **① Colab CPU fp16 全程记时（sana06 1024² 4 步，隧道 `kick-trio-years-antenna`）**：
