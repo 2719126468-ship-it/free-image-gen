@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-18 11:52（第 10 次修订：**v5 真机交付两张无审查色图**（sd_turbo fp32 512×768 ~110s/张，本机落盘验证）；隧道提第三张时 1033 死，前两张已拉回）
+> 最后更新：2026-10-18 12:40（第 11 次修订：★ 新增 4.8 **SDXL on Colab CPU 天花板查证** —— 纠正「bf16 最优先」的外部建议；v6 bf16 自动探测已落地；sdcpp/Modal 两条真正可行路已写脚本）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -12,7 +12,7 @@
 - **运行环境**：Android 10 + Termux（无 root，arm64，Python 3.14，无 GPU）
 - **Git 仓库**：`~/free-image-gen`，远程 `github.com/2719126468-ship-it/free-image-gen`，分支 `main`，**每轮任务结束必须 commit + push**
 - **核心文档**：`docs/routes.md`（所有实测结论、错误原文、配额机制，1–12 节）
-- **当前 HEAD**：`7b47688`（★ Colab CPU 档 v5：**真机交付色图成功**，sd_turbo fp32 ~110s/张；RAM 闸门纳入 act 峰值）
+- **当前 HEAD**：`bdafdb3`（★ v6 bf16 自动探测 + cell8 精度基准；`scripts/sdcpp_colab.sh` + `scripts/modal_sdxl.py`）
 
 ### 目录结构
 ```
@@ -385,7 +385,45 @@ CPU 档第一次真正出图，`cpu_engine:"diffusers-float32"` / `cpu_ready:tru
   —— 上次 sana06 就是图 done 了但隧道先死，结果丢在 /content 拉不回。
 
 **结论：Colab CPU 档 v5 已可实用**（sd_turbo 应急通路，~2min/张无审查）。
-GPU 恢复后仍优先 animagine 30s/张（画质高得多）。重开 notebook 用 GitHub main（v5，`7b47688`）。
+GPU 恢复后仍优先 animagine 30s/张（画质高得多）。重开 notebook 用 GitHub main（v6，`78d195f`）。
+
+---
+
+### 4.8 SDXL 在 Colab 免费 CPU 上的真实天花板（2026-10-18 查证）
+
+用户反馈 sd1.5 画质不行要 SDXL。**两个硬数字决定一切**：
+| dtype | SDXL 权重 | 12.6GB 墙 | CPU 速度 |
+|---|---|---|---|
+| fp32 | **14.7GB** | ❌ 装不下 | 快（若装得下）|
+| fp16 | 7.3GB | ✅ | **慢一个量级**（sd_turbo fp16 实测 35min 没出图）|
+| bf16 | 7.3GB | ✅ | 取决于 CPU 有无 `avx512_bf16`/`amx_bf16` |
+
+**⚠️ 纠正外部建议（有出处但结论不适用）**：有人说"CPU 上换 bf16 是单点收益最大改动，PyTorch 官方 Xeon 实测 3.91×"。
+数字本身没错（PyTorch 博客，BF16+compile+SDPA 在 Xeon 上），但**测试机是 Sapphire Rapids（有 AMX）**。
+AVX512_BF16 首次出现于 **Cooper Lake(2021)/Ice Lake+**；**Colab 免费档长期是 Skylake-SP / Cascade Lake
+（2017-2019），有 avx512f/vnni 但无 avx512_bf16** → PyTorch 会软件 fallback，**不比 fp32 快**。
+→ 所以 v6 里 bf16 是**自动探测后启用**（`_cpu_bf16_capable()` 读 /proc/cpuinfo），探测不到就跳过，
+  绝不无脑切 bf16。cell 8 的基准 cell 会实测出这台机器的真实加速比。
+
+**v6 已落地（`78d195f`）**：cell1 打印 CPU 型号+AVX512/AMX 位+bf16 判定；cell4 dtype 三态
+（CUDA→fp16 / CPU+bf16硬件→bf16 / 否则→fp32）; SDPA 挂 unet（★pipeline 无此方法）; torch.compile 默认关;
+新增 cell8 精度基准。桩件 12 项全过。**真实加速比待重开 notebook 跑 cell1+cell8。**
+
+#### 真要 SDXL 画质的三条路（按可靠性）
+| 方案 | 可行性 | 实测/查证依据 | 状态 |
+|---|---|---|---|
+| **sdcpp + GGUF Q4_K** | ★最实际 | `off-grid-ai/animagine-xl-4.0-GGUF` Q4_K=**2.80GB** ungated；ggml 用 AVX2/AVX512 原生 int kernel，非 PyTorch 软件 fallback | `scripts/sdcpp_colab.sh` 已写，参数对 upstream 源码核实 |
+| **Modal 免费 GPU** | ★最省心 | Starter **$30/月**免费额度（pricing yml 已核）、按秒计费、A10G SDXL ~3s/张 | `scripts/modal_sdxl.py` 已写，py_compile 通过；需 `pip install modal && modal token new` |
+| Colab CPU + bf16 | ⚠️ 看运气 | 取决于分到的 CPU 是否 Ice Lake+；免费档大概率 Skylake/Cascade → 无效 | v6 已自动探测，cell8 实测 |
+| Colab GPU | 等配额 | animagine fp16 30s/张 @832×1216，画质最好 | GPU 耗尽中，`/health` 看 `gpu:true` |
+
+#### sdcpp 关键坑（写进脚本注释）
+- **预编译二进制是 Ubuntu 24.04 构建（glibc 2.39），Colab 是 22.04（glibc 2.35）→ 跑不了**，
+  必须源码 build（`git clone --recursive` + `cmake -DSD_WEBP=OFF`，约 3-5 分钟）
+- CLI 参数真名（对 `examples/common/common.cpp` options 表核实）：
+  `-m/-p/-n/-W/-H/--steps/--cfg-scale/--sampling-method(不是 sample-method)/-s/-o/-t`
+- Q4_K 2.8GB vs Q8_0 4.18GB vs bf16 6.94GB（SDXL-base）；Q4_K 画质/体积最优
+- 想更快：`--steps 20`、`--offload-to-cpu`、`--vae-tiling`
 
 #### 🔴 2026-10-18 09:26 实测（已修，见上节）：Colab **CPU 档整条路是坏的**
 
@@ -461,6 +499,9 @@ GPU 恢复后仍优先 animagine 30s/张（画质高得多）。重开 notebook 
 
 - [x] **Colab CPU 档 v2 真机验证**：加载器可用（`cpu_ready:true` / `cpu_engine:diffusers-fp16`），
       optimum-intel 墙已绕过；但 fp16 推理慢到不可用（sd_turbo 4步512px >25min 未出图）→ 已出 v3
+- [ ] **★ SDXL 画质（用户明确要）**：先重开 notebook 跑 **cell1**（看 CPU 型号+bf16 判定）
+      和 **cell8**（bf16/fp32/fp16 单步实测）→ 若 bf16 真快则 CPU 走 bf16；
+      否则走 `scripts/sdcpp_colab.sh`（Q4_K 2.8GB，CPU 唯一能跑完 SDXL 的路）或 `scripts/modal_sdxl.py`（A10G 3s/张）
 - [ ] **★ Colab CPU 档 v3 待真机验证**：**必须开新副本**（F5 不重拉 GitHub，当前 runtime 还是 v2）
       → cell 1→2→4 → 新 URL 写回 ~/.dsh/.colab-url → 提 `cpu_preset:"sd_turbo"`（现在走 fp32）
       → 看 `/status/<jid>` 的 `progress`/`elapsed` 判断真实速度，把秒数记进 4.7 节
