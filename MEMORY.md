@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-18 09:25（第 4 次修订：新隧道 `takes-consult-milton-between` 已入库并实测 `/health` 200；HEAD 更正为 `df7aa23`）
+> 最后更新：2026-10-18 09:30（第 5 次修订：**Colab CPU 档整条路实测报废**（OVDiffusionPipeline 导入失败）+ **Horde >845² 动态 403** + 本机无 numpy）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -241,7 +241,7 @@ DSH 插件工具名 `colab_gen`（action 同名）。**插件代码改了要重�
 
 - ⚠️ **GPU 配额耗尽**：`/health` 实测 `gpu:false / gpu_name:none / vram_gb:0.0`，现在只给 CPU 档。恢复靠时间（一般次日）或错峰（国内清早概率高）
 - ✅ **隧道已换新并且活着**：`https://takes-consult-milton-between.trycloudflare.com`（已写入 `~/.dsh/.colab-url`），`GET /health` → HTTP 200 / 1.1s
-- ⚠️ `cpu_ready:false` 且 `cpu_preset:sana06`：CPU 侧 OpenVINO 权重**尚未加载**，第一张图会先触发下载再出图（分钟级）；`cpu_error:null`、`video_error:null`
+- ❌ `cpu_ready:false` 的含义**不是"权重还在下载"**：见下节，CPU 档整条路是坏的（`OVDiffusionPipeline` 导入失败）
 - animagine-xl-4.0 权重（6.94GB）下载过一次，同 runtime 内免重下；runtime 没了要重下 ~8 分钟
 - **下一步**：CPU 档先跑 sana06 出图（notebook 自动分流，客户端无感）；GPU 恢复后切回 animagine 30s/张
 
