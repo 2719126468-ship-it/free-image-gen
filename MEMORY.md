@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-18 凌晨（第 3 次修订：**新增 4.7 Colab 远程生成线**——三面墙实测 + 速度表 + 当前状态）
+> 最后更新：2026-10-18 09:25（第 4 次修订：新隧道 `takes-consult-milton-between` 已入库并实测 `/health` 200；HEAD 更正为 `df7aa23`）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -12,7 +12,7 @@
 - **运行环境**：Android 10 + Termux（无 root，arm64，Python 3.14，无 GPU）
 - **Git 仓库**：`~/free-image-gen`，远程 `github.com/2719126468-ship-it/free-image-gen`，分支 `main`，**每轮任务结束必须 commit + push**
 - **核心文档**：`docs/routes.md`（所有实测结论、错误原文、配额机制，1–12 节）
-- **当前 HEAD**：`1031eb5`（Colab notebook 一次成型版 + cell4 幂等化）
+- **当前 HEAD**：`df7aa23`（MEMORY 新增 4.7 Colab 线；notebook 代码最后一次改动在 `1031eb5` = cell4 幂等化）
 
 ### 目录结构
 ```
@@ -237,10 +237,11 @@ GET  /flush           产出搬 Drive
 ```
 DSH 插件工具名 `colab_gen`（action 同名）。**插件代码改了要重启 dsh 会话才生效**（Node 模块缓存）。
 
-#### 当前状态（2026-10-18 04:00 左右）
+#### 当前状态（2026-10-18 09:20 复核）
 
-- ⚠️ **GPU 配额耗尽**：Colab 现在只给 CPU 档。恢复靠时间（一般次日）或错峰（国内清早概率高）
-- 隧道 `internal-parks-detective-plant` 已死（Flask 500 后 runtime 重启），`~/.dsh/.colab-url` 是旧地址，重开 notebook 后要更新
+- ⚠️ **GPU 配额耗尽**：`/health` 实测 `gpu:false / gpu_name:none / vram_gb:0.0`，现在只给 CPU 档。恢复靠时间（一般次日）或错峰（国内清早概率高）
+- ✅ **隧道已换新并且活着**：`https://takes-consult-milton-between.trycloudflare.com`（已写入 `~/.dsh/.colab-url`），`GET /health` → HTTP 200 / 1.1s
+- ⚠️ `cpu_ready:false` 且 `cpu_preset:sana06`：CPU 侧 OpenVINO 权重**尚未加载**，第一张图会先触发下载再出图（分钟级）；`cpu_error:null`、`video_error:null`
 - animagine-xl-4.0 权重（6.94GB）下载过一次，同 runtime 内免重下；runtime 没了要重下 ~8 分钟
 - **下一步**：CPU 档先跑 sana06 出图（notebook 自动分流，客户端无感）；GPU 恢复后切回 animagine 30s/张
 - 视频（Wan2.2 TI2V-5B）从未实测成功，权重 10-20GB 会加剧 RAM/时间压力，**优先级放后**
