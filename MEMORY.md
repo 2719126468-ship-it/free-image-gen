@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-23 18:40（第 13 次修订：★ 新增 4.10 + routes.md 第十三节「2026-10 新增免费 API 源实测」——CF 额度已恢复并出真图、NIM/Agnes 端点与 401 原文坐实（待 key）、Prodia 判死、Modal 降级；特性提交 `500b295`，docs 收尾提交 `365c78c`）
+> 最后更新：2026-10-23 19:20（第 14 次修订：Device key 直付复测 kontext-pro→401 / klein-4b→200；Agnes t2i 出图、i2i 503；Claw Hunter 部署受 workerd/android 阻；收尾提交 `0c97d69`）。第 13 次修订：★ 新增 4.10 + routes.md 第十三节「2026-10 新增免费 API 源实测」——CF 额度已恢复并出真图、NIM/Agnes 端点与 401 原文坐实（待 key）、Prodia 判死、Modal 降级；特性提交 `500b295`，docs 收尾提交 `365c78c`）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -37,6 +37,7 @@
     ├── novita_gen.py      ← ★ Novita 异步任务式文生图（待 key）
     ├── segmind_gen.py     ← ★ Segmind 文生图（x-api-key，待 key）
     ├── together_gen.py    ← ★ Together FLUX.1-schnell-Free（待 key）
+    ├── clawhunter_gen.py  ← ★ Claw Hunter Worker 客户端（部署待桌面端；读 ~/.dsh/.clawhunter-url）
     ├── pol_anon.py        ← ★ 匿名档文生图（零 key）
     ├── pol_edit.py        ← ★ 新版 API img2img（pollen key）
     ├── horde_img2img.py   ← ★ Horde img2img（免费无审查，排队久）
@@ -86,7 +87,8 @@
 | HF ZeroGPU `anima_gen.sh` | HF token | ✅ | — | 1–10s | 5min GPU/天（已耗尽） | 无 |
 | **Cloudflare Workers AI**（2026-10-23 复测：**额度已恢复**） | API token | ✅ | — | 4–12s | ~50张/天 | 有过滤 |
 | **NVIDIA NIM** `nvidia_nim_gen.py` | `nvapi-*` | ⚠️待key | — | — | 1,000 credits/月 | 依模型 |
-| **Agnes AI** `agnes_gen.py` | Bearer（宣称不计费） | ⚠️待key | **✅ `extra_body.image`** | — | 宣称 no token billing | 未知 |
+| **Agnes AI** `agnes_gen.py` | Bearer（实测未计费） | ✅ **t2i 出图** | ⚠️ i2i 卡 503 queue full | 12.5s/张 | 无计费字段 | 未知 |
+| Claw Hunter Worker `clawhunter_gen.py` | 自控 Worker（零密钥） | ❌ 部署受阻 workerd/android | — | — | 自建 | 未知 |
 | Novita `novita_gen.py` | Bearer | ⚠️待key | 有（另端点） | — | 标称 $10/90天 | 未知 |
 | Segmind `segmind_gen.py` | `x-api-key` | ⚠️待key | 有 | — | 标称 100/天 | 未知 |
 | Together `together_gen.py` | Bearer | ⚠️待key | — | — | FLUX.1-schnell-Free、3 RPM | 有 |
@@ -126,6 +128,14 @@ python3 scripts/pol_edit.py <ref> <out> "<instruction>" black-forest-labs/flux.1
 - 超时要给足：768×1024 quality=high 需 20–40s，curl 60s 会断
 - 审核地图：kontext/klein ✅ PASS｜`mai-image-2.6`/`gpt-image-1-mini` ❌ Azure 拦截｜
   `community/*/flux-2-dev-free` ❌ logfare 拦截
+- **★ 2026-10-23 Device key 直付复测（拍板数据）**：
+  `pol_edit.py … flux.1-kontext-pro` → **HTTP 401** `A valid API key is required. Get one at
+  https://enter.pollinations.ai/keys, or buy one with USDC (x402) …`（不是 402，不是 Invalid model）
+  **但同一把 key 打 `flux.2-klein-4b`（0.005/张）→ HTTP 200 / 188833B JSON → 141451B PNG / 768×1024 /
+  luma 161.8 / md5 `aa13110a6305748d…`**。→ **Device key 能直付，是 kontext-pro 这一档被拒**
+  （目录里 kontext-pro 仍在、0.03/张）。要定性「额度阈值 vs 独立鉴权」需再花 0.03 对照，等授权。
+  另：`community/*-free` 那批免费 id **已下线**（400 `Invalid model or alias`）；`/v1/models` 现在 **386** 个模型；
+  余额**无法用 API 读**（`/account/balance|usage|keys` 全 401/超时），只能看扣费事件
 - **`key_budget` 是预算上限不是余额**：dashboard 建的 visible-chickadee（budget=None）edits 402
   - **2026-10-17 修正**：**Device key（`~/.pollinations/credentials.json` 的 apiKey）可以直接付 edits**，
     实测连续 7 张成功，balance 与 accountBalance 同步下降。**以后统一用 Device key 当 POLLEN_KEY**
@@ -688,7 +698,8 @@ Prodia **判死**（域名无 A 记录）；Modal 按用户结论**降级为「�
 | Cloudflare Workers AI | ✅（已有 token） | SDXL 1024²：**HTTP 200 / 980554B / md5 `12c5917f…` / luma 98.8**；flux-schnell 4.36s；lightning 8.17s | **主力** |
 | Pollinations 匿名 | ✅ 零注册 | 402 `FREE_LIMIT`（1 张/45s）原文已录；等满后 turbo/sana 各出一张 512²（22630B / 23835B）；`/models` 匿名只回 `["sana"]` | **限流备用** |
 | NVIDIA NIM | 二手来源称免卡 | `integrate…/v1/models` 匿名 200（84 个，全 LLM）；`ai.api.nvidia.com/v1/genai/…` → **401 `Header of type authorization was missing`** | 待 key |
-| Agnes AI | 宣称无计费 | `apihub.agnes-ai.com/v1/images/generations` → **401 `Token not provided`**；`/v1/models` → 404 Invalid URL | 待 key（**优先接**，因支持 img2img） |
+| **Agnes AI** | ✅ 实测（key 到手后） | **t2i 200 / 760830B / 1024² / md5 `560b3b45…` / 12.5s**；i2i 格式被接受但**三次 503 `image queue is full`** | **t2i 已验证**；i2i 待错峰 |
+| **Claw Hunter Worker** | 自控端点 | `wrangler --version` → **`Error: Unsupported platform: android arm64 LE`**（workerd 无 android/arm64 构建） | **待桌面端部署**（客户端脚本已就绪） |
 | Novita | 标称 $10/90天 | **400 `MISSING_API_KEY`** | 待 key |
 | Segmind | 标称 100/天 | **401 `Missing Authorization or x-api-key`** | 待 key |
 | Together | FLUX schnell Free | **401** Missing API key（注意：urllib 默认 UA 会被 CF 拦成 **403 error code: 1010**，脚本已统一加 UA） | 待 key |
@@ -754,6 +765,13 @@ Prodia **判死**（域名无 A 记录）；Modal 按用户结论**降级为「�
       build 耗时、每步秒数、产物校验写进 4.9。**这是 CPU 上唯一能跑完 SDXL 的路**
 - [x] **★ 2026-10 新源接入**：CF 额度已恢复（真图已出）；NIM/Agnes/Novita/Segmind/Together 脚本就绪并探活，
       只缺 key（放 `~/.dsh/.{nim,agnes,novita,segmind,together}-key`）；Prodia 判死；Modal 降级（详见 4.10 + routes.md §13）
+- [x] **★ Pollinations Device key 直付复测**：kontext-pro → 401 原文；同 key klein-4b → 200/141451B PNG。
+      **Device key 通路通**，kontext 档待再授权 0.03 定性（见 4.2 + routes.md §13.10）
+- [x] **★ Agnes 接入**：t2i 已验证出图（1024²/760830B）；i2i 通道格式被接受但连续 503 queue full，
+      需错峰；key 落 `~/.dsh/.agnes-key`
+- [ ] **Claw Hunter 部署（待桌面端）**：Termux 上 `workerd` 无 android/arm64 构建（原文已录），
+      需在 x86_64/arm64 Linux 或 macOS 上 `npx wrangler login && npx wrangler deploy`，
+      部署后把 URL 写 `~/.dsh/.clawhunter-url`，客户端 `scripts/clawhunter_gen.py` 即可用
 - [ ] **★ SDXL 画质（用户明确要）**：bf16 已证伪（上游结论见上一行），剩余两条：sdcpp(v7，待真机) / Modal 免费 GPU（`scripts/modal_sdxl.py`，需 `modal token new`）；先重开 notebook 跑 **cell1**（看 CPU 型号+bf16 判定）
       和 **cell8**（bf16/fp32/fp16 单步实测）→ 若 bf16 真快则 CPU 走 bf16；
       否则走 `scripts/sdcpp_colab.sh`（Q4_K 2.8GB，CPU 唯一能跑完 SDXL 的路）或 `scripts/modal_sdxl.py`（A10G 3s/张）
