@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-23 20:20（第 16 次修订：★ `examples/anima_kaggle.ipynb` 适配完成（BUILD=kg1，裁掉 sdcpp/视频，路径/隧道/依赖全部按 Kaggle 改，桩件回归通过）；Kaggle 实跑 22.1s/张已确认，仍缺加载秒数+sd-turbo+GPU 小时；本机新增 `~/.dsh/.kaggle-url` 等价通道；适配提交 `b70f834`）。第 15 次修订：★ pollen 到期前探测 —— klein-4b 出 2 张创作候选（768×1024，md5 不同）、flux.1-schnell 0.002 确认可付、余额读数通了（4.703，实耗 0.017/0.03）；Kaggle 验证卡在需手机验证+浏览器操作，只交付了 `examples/kaggle_sdxl_probe.ipynb`，**无实测数据**）。第 14 次修订：Device key 直付复测 kontext-pro→401 / klein-4b→200；Agnes t2i 出图、i2i 503；Claw Hunter 部署受 workerd/android 阻；收尾提交 `0c97d69`）。第 13 次修订：★ 新增 4.10 + routes.md 第十三节「2026-10 新增免费 API 源实测」——CF 额度已恢复并出真图、NIM/Agnes 端点与 401 原文坐实（待 key）、Prodia 判死、Modal 降级；特性提交 `500b295`，docs 收尾提交 `365c78c`）
+> 最后更新：2026-10-23 21:05（第 17 次修订：★ **nvidia-smi 在 Kaggle 双卡上解析翻车**（`could not convert string to float: '15360 \nTesla T4'`，异常被吞→静默退回 CPU 档）；GPU 检测全面改 `torch.cuda` API，双卡按单卡显存判断；桩件 4/4）。第 16 次修订：★ `examples/anima_kaggle.ipynb` 适配完成（BUILD=kg1，裁掉 sdcpp/视频，路径/隧道/依赖全部按 Kaggle 改，桩件回归通过）；Kaggle 实跑 22.1s/张已确认，仍缺加载秒数+sd-turbo+GPU 小时；本机新增 `~/.dsh/.kaggle-url` 等价通道；适配提交 `b70f834`）。第 15 次修订：★ pollen 到期前探测 —— klein-4b 出 2 张创作候选（768×1024，md5 不同）、flux.1-schnell 0.002 确认可付、余额读数通了（4.703，实耗 0.017/0.03）；Kaggle 验证卡在需手机验证+浏览器操作，只交付了 `examples/kaggle_sdxl_probe.ipynb`，**无实测数据**）。第 14 次修订：Device key 直付复测 kontext-pro→401 / klein-4b→200；Agnes t2i 出图、i2i 503；Claw Hunter 部署受 workerd/android 阻；收尾提交 `0c97d69`）。第 13 次修订：★ 新增 4.10 + routes.md 第十三节「2026-10 新增免费 API 源实测」——CF 额度已恢复并出真图、NIM/Agnes 端点与 401 原文坐实（待 key）、Prodia 判死、Modal 降级；特性提交 `500b295`，docs 收尾提交 `365c78c`）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -701,6 +701,22 @@ CMake Error at CMakeLists.txt:179 (message):
 - ⚠️ 与 4.3 的旧记录吻合：**面积 ≤845² 才不被 403**（640×960=614400 < 714025 ✅）
 - 结论：**等 GPU / 等 sdcpp 真机验证期间，SDXL 画质的现成来源是 Horde**（`scripts/horde_gen.sh`，
   `HORDE_MODELS='Animagine XL'` 单模型跑最稳，别混多模型让它排队轮换）
+
+### 4.11 🔴 Kaggle 环境坑：GPU 检测别碰 nvidia-smi（2026-10-23 真机）
+
+**事故**：Kaggle 已开 T4 x2，cell 1 却打印 `GPU : 无（CPU 档）`，报错原文
+`nvidia-smi: could not convert string to float: '15360 \nTesla T4'`。
+
+- **根因**：`nvidia-smi --query-gpu=name,memory.total --format=csv,noheader` 是**每卡一行**；
+  双卡输出两行 → 旧代码 `split(',')[1]` 拿到 ` 15360 MiB\nTesla T4`（第二行卡名拼进来）→ `float()` 抛错
+- **最坏的部分不是报错而是静默降级**：异常被 `except` 吞掉，`HAS_GPU` 停在 False，
+  表面现象是"没有 GPU"，实际是解析失败 → 排查方向被带偏
+- **规则（写死）**：GPU/显存探测**一律走 `torch.cuda`**
+  （`is_available()` / `device_count()` / `get_device_name(0)` / `get_device_properties(0).total_memory` /
+  `mem_get_info(0)`），**不要解析 nvidia-smi 文本**；它只配当人工排障命令
+- **双卡口径**：`VRAM_GB` = **cuda:0 单卡**（SDXL fp16 约 14.6GB 够用），`VRAM_TOTAL_GB` 仅展示 ——
+  单纯相加会误判模型装得下，实际扩散模型只跑在一张卡上
+- **桩件 4/4**：双卡判定 + 单卡/合计数值 + 无卡提示（含 Restart Session 指引）+ API 抛错安全降级
 
 ### 4.10 ★ 2026-10 新增免费 API 源实测（详见 docs/routes.md 第十三节）
 
