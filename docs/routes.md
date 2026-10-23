@@ -667,3 +667,43 @@ curl -s http://<tunnel>/health | jq '{gpu_model,switching,switch_error,switch_la
 未知模型 400 并附可选列表｜黑图时 `pipe=None` 且报错｜`/model` 路由存在｜GET 返回 current/models/defaults｜
 无 `load_gpu_model`（CPU 档/未跑 cell3）→ 400｜POST 后台切换写入 `MODEL_SW`。
 
+### 14.6 ✅ Anima 在 Kaggle T4 上真能跑（2026-10-24 实测，三个坑全解）
+
+**结论**：能。但只能用 **fp32 + 512×768**，24 步 **89–99s/张**，加载 20–22s（HF 已缓存），显存占 10.5GB。
+**640×960 必 OOM**（fp32 需要 >14.5GB，T4 只有 14.56GiB），`AnimaModularPipeline` 也**没有** `enable_model_cpu_offload`
+（实测 AttributeError），所以分辨率天花板就是 512×768。
+
+| 项 | 实测值 |
+|---|---|
+| 加载（fp32，HF 缓存命中） | **20–22s** |
+| 显存占用 | **10.5GB / 14.56GB**（单卡） |
+| 512×768 @24 步 | **89–99s/张** |
+| 640×960 @22 步 | ❌ **CUDA OOM**（连尝试的 226MiB 都放不下，回落也因碎片失败） |
+| 产物 | 4 张 512×768，337–478KB，luma 87–147，md5 全不同 |
+
+**三个必炸的坑（原 cell 3 实现一个都没绕开）**
+
+1. **t5_tokenizer 装不上**：repo 的 `t5_tokenizer/` 只有 `tokenizer.json` + `tokenizer_config.json`，
+   **没有 `spiece.model`** → 慢速 `T5Tokenizer` 报
+   `ValueError: Either model_file or model_proto must be specified.`；
+   而它的 `tokenizer_config.json` 里 `extra_special_tokens` 是 **list**（100 个 `<extra_id_N>`），
+   transformers 4.57 要 **dict** → `AttributeError: 'list' object has no attribute 'keys'`
+   → 修法：拉下来把该字段改成 `{}`、去掉 `tokenizer_class`，用 `T5TokenizerFast` 从本地目录加载
+2. **guider 缺失**：`load_components()` 不会加载 `guider`（model_index 里根本没这个组件），
+   生成时 `components.guider` 是 None → `TypeError: 'NoneType' object is not callable`
+   → 修法：`p.update_components(guider=ClassifierFreeGuidance(guidance_scale=4.5))`
+3. **dtype 传参无效**：`ModularPipeline.from_pretrained(dtype=...)` 会被忽略
+   （警告 `Unexpected input 'dtype'`），必须逐组件 `.to(torch.float32)`；
+   且 T4 无 bf16，**fp16 会 100% 黑图**，只能 fp32
+
+另外：`tokenizer`（Qwen2）在 `load_components()` 里同样静默失败，必须显式
+`AutoTokenizer.from_pretrained(REPO, subfolder='tokenizer')`。
+
+**出图通道（多卡的价值）**：Kaggle T4 x2 是**两张独立 15GB 卡**。notebook 用 `cuda:0`，
+所以可以把 Anima 放到 **`CUDA_VISIBLE_DEVICES=1`** 的独立进程里跑，与 notebook 的 animagine/sd_turbo 并行互不干扰
+（本轮 4 张就是这么出的）。`/kaggle/working/out/*.png` 落盘后用 pomf2/qu.ax 传出来
+（0x0.st 已停止上传、x0.at 会弹验证码、tmpfiles 直链是 HTML 挡板 —— 都试过了）。
+
+**已写回 `examples/anima_kaggle.ipynb` cell 3**：`GPU_MODEL='anima'` 现在走完整修正路径，
+默认 **512×768@24**，`/model {"name":"anima"}` 可直接切（加载约 20s，之后 90-100s/张）。
+
