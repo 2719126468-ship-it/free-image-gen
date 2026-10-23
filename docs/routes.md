@@ -607,15 +607,35 @@ GPU : 无（CPU 档 -> OpenVINO 生图）          ← 明明开着 T4 x2
 **本机侧**：`~/.dsh/.kaggle-url` 与 `~/.dsh/.colab-url` **互为等价**（前者是后者的软链）；
 `colab_gen.sh` 在 `.colab-url` 为空时自动回退读 `.kaggle-url`。旧的失效 Colab URL 已清空（备份 `~/tmp/colab-url.stale.bak`）。
 
-### 14.4 已知实测（来自用户侧 Kaggle 跑通的一次）
+### 14.4 ✅ Kaggle 端到端实测（隧道 `drinking-flowers-revenue-personally`，2026-10-23 23:49）
 
-| 项 | 数值 |
-|---|---|
-| 平台 | Kaggle Notebook，GPU T4 x2，Internet On |
-| animagine-xl-4.0 fp16，832×1216 @28 步 | **22.1s/张**，mean 161.8，md5 `1bb81b4d…` |
-| cloudflared quick tunnel | **出网正常**，URL 形如 `https://xxx.trycloudflare.com`，location `iad21` |
+**`/health` 自证（修复 GPU 检测之后）**
+```json
+{"build":"kg1","engine":"kaggle","gpu":true,"gpu_name":"Tesla T4","vram_gb":14.6,
+ "workdir":"/kaggle/working","out":"/kaggle/working/out","gpu_model":"animagine","avail_ram_gb":28.5}
+```
+- `vram_gb=14.6` = **单卡**（T4 实际 15.8e9 字节 ≈ 14.75GiB）→ **修复后没有把双卡相加成 29GB**，口径正确
+- `avail_ram_gb=28.5` = Kaggle 宿主机 RAM（约 29GB），与 Colab 的 12.6GB 完全不同量级
 
-**仍缺（跑通后回填）**：① animagine 的**加载秒数**（只报了推理）② `sd-turbo` 512×768@4 的加载/推理/尺寸/字节/md5/mean
-③ Kaggle Settings 里显示的**剩余 GPU 小时**。
+**出图实测（本机 `/generate` → `/result` 拉回落盘校验）**
+
+| # | 配置 | 服务端 seconds | 字节 | 尺寸 | luma | md5 |
+|---|---|---|---|---|---|---|
+| 1 | animagine fp16 832×1216 @28，seed 20251023 | **29.4** | 1563939 | 832×1216 | 133.6 | `2f442c2818f79415…` |
+| 2 | animagine fp16 832×1216 @28，seed 20251024 | **29.6** | 1675257 | 832×1216 | 161.3 | `a1afec5fd391c2f1…` |
+| 用户侧早前一次 | 同模型同尺寸 | 22.1 | — | 832×1216 | 161.8 | `1bb81b4d…` |
+
+- **两张 md5 不同** → seed 参数确实生效，不是缓存复用
+- 本机拿到的是真 PNG（`/result/<jid>` HTTP 200，1.56MB / 1.67MB，luma 133.6 / 161.3，stddev 74.8）
+- 速度落在 **22–30s/张**（用户侧 22.1s 是更早一次；本轮两次都 ~29.5s，可能受 T4 x2 中 cuda:0 状态/首次热机影响）
+- **产物路径**：`/kaggle/working/out/<jid>.png`，本机副本 `~/th-img/kaggle_animagine_832x1216.png`
+
+**仍缺（需在 notebook 里读/操作）**
+① animagine 的**加载秒数**（cell 3 打印那行，服务端 `/health` 看不到）
+② `sd-turbo` 512×768@4：要把 `GPU_MODEL='sd_turbo'` 改掉并**重跑 cell 3**（GPU 分支不吃 `cpu_preset`，无法从客户端强切）
+③ Kaggle Settings 里显示的**剩余 GPU 小时**
+
+**结论**：Kaggle 版已可当 Colab GPU 的备用出图环境 —— 走通 `/health` + `/generate` + `/result` 全链路，
+速度 22–30s/张，双卡按单卡判断正确。
 
 

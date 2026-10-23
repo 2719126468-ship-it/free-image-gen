@@ -90,7 +90,7 @@
 | Gemini web 反代 | Gemini Cookie | ✅ | ✅ | 快 | 普号免费 | **禁 NSFW** |
 | HF ZeroGPU `anima_gen.sh` | HF token | ✅ | — | 1–10s | 5min GPU/天（已耗尽） | 无 |
 | **Cloudflare Workers AI**（2026-10-23 复测：**额度已恢复**） | API token | ✅ | — | 4–12s | ~50张/天 | 有过滤 |
-| **Kaggle Notebook**（T4 x2，`examples/anima_kaggle.ipynb`） | 手动上传 + Settings GPU/Internet | ✅ | ❌ 未移植 | **22.1s/张**（animagine 832×1216@28） | 30 GPU h/周 | 依模型 |
+| **Kaggle Notebook**（T4 x2，`examples/anima_kaggle.ipynb`，**2026-10-23 端到端已跑通**） | 手动上传 + Settings GPU/Internet | ✅ | ❌ 未移植 | **22–30s/张**（animagine 832×1216@28，实测 29.4/29.6s） | 30 GPU h/周 | 依模型 |
 | **NVIDIA NIM** `nvidia_nim_gen.py` | `nvapi-*` | ⚠️待key | — | — | 1,000 credits/月 | 依模型 |
 | **Agnes AI** `agnes_gen.py` | Bearer（实测未计费） | ✅ **t2i 出图** | ⚠️ i2i 卡 503 queue full | 12.5s/张 | 无计费字段 | 未知 |
 | Claw Hunter Worker `clawhunter_gen.py` | 自控 Worker（零密钥） | ❌ 部署受阻 workerd/android | — | — | 自建 | 未知 |
@@ -717,6 +717,12 @@ CMake Error at CMakeLists.txt:179 (message):
 - **双卡口径**：`VRAM_GB` = **cuda:0 单卡**（SDXL fp16 约 14.6GB 够用），`VRAM_TOTAL_GB` 仅展示 ——
   单纯相加会误判模型装得下，实际扩散模型只跑在一张卡上
 - **桩件 4/4**：双卡判定 + 单卡/合计数值 + 无卡提示（含 Restart Session 指引）+ API 抛错安全降级
+
+**修复后真机验证（隧道 `drinking-flowers-revenue-personally`）**：`/health` 回
+`engine:"kaggle" / gpu:true / gpu_name:"Tesla T4" / **vram_gb:14.6（单卡，不是 29GB）** / build:"kg1" / avail_ram_gb:28.5`；
+`/generate` 832×1216@28 两张 = **29.4s / 29.6s**，1563939B / 1675257B，luma 133.6 / 161.3，
+md5 `2f442c28…` / `a1afec5f…`（**不同 → seed 生效**）。全链路 `/health → /generate → /result` 通。
+仍缺：animagine 加载秒数（cell 3 输出里）、sd-turbo 512×768@4（须改 `GPU_MODEL` 重跑 cell 3）、剩余 GPU 小时
 
 ### 4.10 ★ 2026-10 新增免费 API 源实测（详见 docs/routes.md 第十三节）
 
