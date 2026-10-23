@@ -146,7 +146,7 @@ echo "  documented: 1 image / 45s, no key. Nothing to probe."
 
 echo
 echo "================ 2026-10 新增免费 API 源（无 key 也能探活）================"
-for f in nvidia_nim_gen agnes_gen novita_gen segmind_gen together_gen; do
+for f in nvidia_nim_gen agnes_gen novita_gen segmind_gen together_gen clawhunter_gen; do
   echo "---- $f"
   timeout 90 python3 "$SCRIPT_DIR/$f.py" --probe 2>&1 | sed 's/^/  /'
 done

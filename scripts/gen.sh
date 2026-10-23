@@ -50,6 +50,7 @@ engine:
   novita Novita AI - $10/90d claim, async task API, needs ~/.dsh/.novita-key
   segmind Segmind - 100/day claim, x-api-key, needs ~/.dsh/.segmind-key
   together Together AI - FLUX.1-schnell-Free, needs ~/.dsh/.together-key
+  clawhunter Claw Hunter Worker（自控 OpenAI 兼容代理，零密钥；需先部署并写 ~/.dsh/.clawhunter-url）
   list   show quota status of every engine and exit
 EOF
   exit 2
@@ -141,5 +142,6 @@ case "$ENGINE" in
   novita)   exec python3 "$SCRIPT_DIR/novita_gen.py"    "$OUTDIR/novita_$(date +%s).png" "$PROMPT" ;;
   segmind)  exec python3 "$SCRIPT_DIR/segmind_gen.py"   "$OUTDIR/segmind_$(date +%s).png" "$PROMPT" ;;
   together) exec python3 "$SCRIPT_DIR/together_gen.py"  "$OUTDIR/together_$(date +%s).png" "$PROMPT" ;;
+  clawhunter) exec python3 "$SCRIPT_DIR/clawhunter_gen.py" "$OUTDIR/clawhunter_$(date +%s).jpg" "$PROMPT" ;;
   *) echo "[!] unknown engine: $ENGINE"; exit 2 ;;
 esac

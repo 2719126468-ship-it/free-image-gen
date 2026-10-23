@@ -326,7 +326,7 @@ proot -b $PREFIX/etc/resolv.conf:/etc/resolv.conf -b $PREFIX/etc/hosts:/etc/host
 |---|---|---|---|---|---|---|---|
 | **Cloudflare Workers AI** | Bearer（已有 token） | 10k neurons/天（约 50 张） | 无硬墙 | SDXL / flux-1-schnell / SDXL-Lightning / flux-2-* | ❌ | **有**（NSFW 词会拒） | ✅ **出图** |
 | **NVIDIA NIM** | Bearer `nvapi-*` | 1,000 credits/月 | 实测约 40 RPM | SDXL / FLUX.1-dev / FLUX.1-schnell / SD3-medium | ❌（genai 端点） | 依模型 | ⚠️ 待 key（401 原文已录） |
-| **Agnes AI** | Bearer | 「no token billing, no credit system」 | 社区标称 1K≈20 RPM / 2K≈10 RPM | agnes-image-2.5-flash（1K–4K） | ✅ **支持**（`extra_body.image`，最多 4 张） | 未知 | ⚠️ 待 key（401 原文已录） |
+| **Agnes AI** | Bearer | 「no token billing, no credit system」 | 社区标称 1K≈20 RPM / 2K≈10 RPM | agnes-image-2.0/2.5-flash（1K–4K） | ✅ **支持**（`extra_body.image`，最多 4 张） | 未知 | ✅ **t2i 已出图**；i2i 卡 **503 queue full**（原文见 13.4） |
 | **Novita AI** | Bearer | 标称 $10 / 90 天 | 标称 60 RPM | SDXL 等 | 有（图生图端点另设） | 未知 | ⚠️ 待 key |
 | **Segmind** | `x-api-key` | 标称 100 次/天 | — | SDXL 系列 | 有 | 未知 | ⚠️ 待 key |
 | **Together AI** | Bearer | FLUX.1-schnell-**Free** | 标称 3 RPM、1 张/次 | FLUX.1-schnell-Free | ❌ | 有 | ⚠️ 待 key |
@@ -382,6 +382,20 @@ POST /v1/models              → HTTP 404 {"error":{"message":"Invalid URL (POST
   「Get a free API key: platform.agnes-ai.com」
 - 脚本：`scripts/agnes_gen.py`（`--ref` 走 img2img）→ key 放 `~/.dsh/.agnes-key`
 
+**2026-10-23 拿到 key 后的真机实测**
+
+| 调用 | 结果 |
+|---|---|
+| `--probe`（`agnes-image-2.5-flash`，1024²） | **HTTP 200 / 258B（仅 URL）**：`{"data":[{"url":"https://platform-outputs.agnes-ai.space/images/t2i/task_.../output_....png","b64_json":""}]}` |
+| **t2i** `agnes-image-2.0-flash` 1024×1024 | **HTTP 200 / 760830B / 1024×1024 / md5 `560b3b452784b667…` / luma 225.8 / 12.5s** |
+| **i2i** `--ref ~/tmp/ref_mermaid.jpg` 768×1024 | **HTTP 503 ×3 次**（间隔 20s / 45s）原文：`{"error":{"message":"image queue is full, please retry later (request id: 2026...fD7F5w2G)","type":"","param":"","code":null}}` |
+
+- 503 是**服务端图像队列打满**，不是格式错（格式错会是 400，且不会带 request id）。
+  即 **Agnes 的 img2img 通路「格式已被接受」，但当前容量接不住**，需要错峰重试
+- 返回形态：`data[0].url`（b64_json 为空串），脚本已按「先 b64 再 url 下载」处理
+- **免费性质**：本轮全程未绑卡、未出现计费/额度字段，与 README 的 "no token billing" 一致
+- ⚠️ 结论分层：**t2i = 已验证可用的免费源**；**i2i = 通道存在但当前 503，暂不能作为改图主力**
+
 ### 13.5 Pollinations 匿名档回归（2026-10-23）
 
 - **限流仍在，原文**：
@@ -436,3 +450,52 @@ POST /v1/models              → HTTP 404 {"error":{"message":"Invalid URL (POST
 | **待 key 观察** | Novita / Segmind / Together | 都是「注册送额度」型，额度真实性必须账号实测，暂不进主力 |
 | **判死** | Prodia | `api.prodia.com` 已无 A 记录，域名层面不可达 |
 | **降级备用** | Modal | 官方页只说 $30 免费 compute，绑卡要求无原文支撑；按用户结论降为「有卡时备用」 |
+
+### 13.9 Claw Hunter Worker（自控 OpenAI 兼容代理）—— 部署受阻，待桌面端
+
+目标：把上游代理跑在**自己的** Cloudflare Worker 上，得到零密钥、可控的 `/v1/images/generations`。
+
+**实测过程与原文（Termux，2026-10-23）**
+```
+$ npm install -g wrangler
+  error path /data/data/com.termux/files/usr/lib/node_modules/wrangler/node_modules/workerd
+  error command failed            ← workerd 的 postinstall 在 Termux 上失败
+
+$ npm install -g wrangler --ignore-scripts     ← 跳过 postinstall，装成功
+  added 32 packages in 2m
+
+$ wrangler --version
+  /data/data/com.termux/files/usr/lib/node_modules/wrangler/node_modules/workerd/lib/main.js:60
+      throw new Error(`Unsupported platform: ${platformKey}`);
+  Error: Unsupported platform: android arm64 LE
+```
+- **根因**：`workerd`（wrangler 内置的本地运行时）**没有 android/arm64 构建**，`Unsupported platform: android arm64 LE`
+  是硬错误，与网络/权限无关。`npm install -g` 与 `npx wrangler login` 都不可能救回来
+- **处理（按任务约定 ≤20 分钟止损）**：**标记「待桌面端部署」**，不在 Termux 上继续折腾
+- 已交付客户端 `scripts/clawhunter_gen.py`（`--probe` 用；免密钥读 `~/.dsh/.clawhunter-url`），
+  已注册进 `gen.sh` 的 `clawhunter` 引擎与 `gen_quota.sh` 探活段 —— 桌面端部署完把 Worker URL 写进该文件即可直接用
+- 部署命令（非 Termux 环境）：`npx wrangler login` → `git clone https://github.com/loves96617665/clawhunter-proxy.git`
+  → `npx wrangler deploy`；若返回 401/403 再看该仓库 README 需要补的 `wrangler secret`（上游 API_KEY 变量名）
+
+### 13.10 Pollinations Device key 直付复测（2026-10-23，授权消耗 0.03 pollen 内）
+
+**目标**：钉死 `~/.pollinations/credentials.json` 的 `apiKey`（Device key）是否仍能直付付费模型。
+
+| 步骤 | 结果 |
+|---|---|
+| 读 key | `sk_ElkFC…`（`keyType` 字段存在） |
+| `pol_edit.py … kontext-pro`（任务指定命令） | **HTTP 401** 原文：`{"success":false,"error":{"message":"A valid API key is required. Get one at https://enter.pollinations.ai/keys, or buy one with USDC (x402) at https://enter.pollinations.ai/api/x402/keys","code":"UNAUTHORIZED","timestamp":"2026-10-23T10:49:09.446Z"},"status":401}` |
+| 同 key 打 `flux.2-klein-4b`（0.005/张） | **HTTP 200 / 188833B（JSON）→ 解码 141451B PNG / 768×1024 / luma 161.8 / md5 `aa13110a6305748d…`** |
+| 模型目录 `GET /v1/models` | **386 个模型**；`black-forest-labs/flux.1-kontext-pro` **仍在**，标价 `completionImageTokens: 0.03` |
+| 余额读取 | `gen.pollinations.ai/account/balance`、`/account/usage`、`/account/keys` 全部 **401 / 超时** → **余额无法用 API 读**，只能用扣费事件间接证明 |
+
+**结论（分两层，别混）**
+1. **Device key 本身有效、且确实能直付**：同 key 跑 klein-4b 两次 200（共约 0.01 pollen），
+   md5/尺寸/字节全部落盘 → 「Device key 付费通路」**通**。
+2. **但 `flux.1-kontext-pro` 这一档返回 401（不是 402）**，而该模型在目录里仍然存在（0.03/张）。
+   401 文案是"需要有效 API key"，与「同 key 别的模型能付」矛盾 → **要么是 0.03 这一档的权限/额度阈值，
+   要么 kontext 路由有独立鉴权**。判定这一点需要**再花 0.03 pollen 做对照**；本轮授权只到 0.03 且已用约 0.01
+   → **未继续，等授权**。
+3. 顺手排除的误判：`community/openai/gpt-image-1-mini-free`、`community/black-forest-labs/flux-2-dev-free`
+   这两个社区免费 id **已不存在**，返回 `Invalid model or alias`（400）→ 4.2 节记的社区 free 路由已下线。
+
