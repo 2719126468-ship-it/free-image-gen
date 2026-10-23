@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-23 19:45（第 15 次修订：★ pollen 到期前探测 —— klein-4b 出 2 张创作候选（768×1024，md5 不同）、flux.1-schnell 0.002 确认可付、余额读数通了（4.703，实耗 0.017/0.03）；Kaggle 验证卡在需手机验证+浏览器操作，只交付了 `examples/kaggle_sdxl_probe.ipynb`，**无实测数据**）。第 14 次修订：Device key 直付复测 kontext-pro→401 / klein-4b→200；Agnes t2i 出图、i2i 503；Claw Hunter 部署受 workerd/android 阻；收尾提交 `0c97d69`）。第 13 次修订：★ 新增 4.10 + routes.md 第十三节「2026-10 新增免费 API 源实测」——CF 额度已恢复并出真图、NIM/Agnes 端点与 401 原文坐实（待 key）、Prodia 判死、Modal 降级；特性提交 `500b295`，docs 收尾提交 `365c78c`）
+> 最后更新：2026-10-23 20:20（第 16 次修订：★ `examples/anima_kaggle.ipynb` 适配完成（BUILD=kg1，裁掉 sdcpp/视频，路径/隧道/依赖全部按 Kaggle 改，桩件回归通过）；Kaggle 实跑 22.1s/张已确认，仍缺加载秒数+sd-turbo+GPU 小时；本机新增 `~/.dsh/.kaggle-url` 等价通道；适配提交 `b70f834`）。第 15 次修订：★ pollen 到期前探测 —— klein-4b 出 2 张创作候选（768×1024，md5 不同）、flux.1-schnell 0.002 确认可付、余额读数通了（4.703，实耗 0.017/0.03）；Kaggle 验证卡在需手机验证+浏览器操作，只交付了 `examples/kaggle_sdxl_probe.ipynb`，**无实测数据**）。第 14 次修订：Device key 直付复测 kontext-pro→401 / klein-4b→200；Agnes t2i 出图、i2i 503；Claw Hunter 部署受 workerd/android 阻；收尾提交 `0c97d69`）。第 13 次修订：★ 新增 4.10 + routes.md 第十三节「2026-10 新增免费 API 源实测」——CF 额度已恢复并出真图、NIM/Agnes 端点与 401 原文坐实（待 key）、Prodia 判死、Modal 降级；特性提交 `500b295`，docs 收尾提交 `365c78c`）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -90,6 +90,7 @@
 | Gemini web 反代 | Gemini Cookie | ✅ | ✅ | 快 | 普号免费 | **禁 NSFW** |
 | HF ZeroGPU `anima_gen.sh` | HF token | ✅ | — | 1–10s | 5min GPU/天（已耗尽） | 无 |
 | **Cloudflare Workers AI**（2026-10-23 复测：**额度已恢复**） | API token | ✅ | — | 4–12s | ~50张/天 | 有过滤 |
+| **Kaggle Notebook**（T4 x2，`examples/anima_kaggle.ipynb`） | 手动上传 + Settings GPU/Internet | ✅ | ❌ 未移植 | **22.1s/张**（animagine 832×1216@28） | 30 GPU h/周 | 依模型 |
 | **NVIDIA NIM** `nvidia_nim_gen.py` | `nvapi-*` | ⚠️待key | — | — | 1,000 credits/月 | 依模型 |
 | **Agnes AI** `agnes_gen.py` | Bearer（实测未计费） | ✅ **t2i 出图** | ⚠️ i2i 卡 503 queue full | 12.5s/张 | 无计费字段 | 未知 |
 | Claw Hunter Worker `clawhunter_gen.py` | 自控 Worker（零密钥） | ❌ 部署受阻 workerd/android | — | — | 自建 | 未知 |
@@ -786,6 +787,10 @@ Prodia **判死**（域名无 A 记录）；Modal 按用户结论**降级为「�
 - [ ] **Claw Hunter 部署（待桌面端）**：Termux 上 `workerd` 无 android/arm64 构建（原文已录），
       需在 x86_64/arm64 Linux 或 macOS 上 `npx wrangler login && npx wrangler deploy`，
       部署后把 URL 写 `~/.dsh/.clawhunter-url`，客户端 `scripts/clawhunter_gen.py` 即可用
+- [x] **★ Kaggle 版适配**：`examples/anima_kaggle.ipynb`（BUILD=kg1）已完成 5 个适配点，裁掉 sdcpp/视频，
+      桩件回归通过（/health 无 video_*/sdcpp_*、engine=kaggle、video→400、GPU 出图 OK、路由 10 条）
+- [ ] **★ Kaggle 实机补三项**：① animagine 加载秒数 ② sd-turbo 512×768@4 全项 ③ 剩余 GPU 小时
+      （拿到 URL 后我跑 `/health` + `/generate` 各一次做端到端验证，再回填 routes.md §14.4）
 - [ ] **★ Kaggle SDXL 验证（待用户操作）**：`examples/kaggle_sdxl_probe.ipynb` 已备好（3 格：依赖+GPU探测 /
       animagine 832×1216@28 / sd-turbo 512×768@4）；**卡点=Kaggle 手机验证 + 浏览器点 Accelerator/Internet**，
       本轮零实测数据。跑完把 GPU 型号/显存/两图耗时字节 md5/剩余 GPU 小时贴回来，补进 routes.md §14
