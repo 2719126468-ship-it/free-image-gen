@@ -572,12 +572,34 @@ Settings → Accelerator、Internet。这两步都不是本机脚本能做的，
 | 3. cloudflared | `BIN = os.path.join(WORK, 'cloudflared')`（Kaggle 的 `/usr/local/bin` 不一定可写） |
 | 4. 交互式限定 | cell 0 与末格都写明：**必须 interactive Run，不能 "Save & Run All"**（否则拿不到运行期 tunnel URL） |
 | 5. 空闲超时 | cell 0 写明 kernel 空闲会自动停、隧道随即断，定位是「手动出图环境」不是后台挂机 |
+| 6. **GPU 检测（2026-10-23 修）** | **规避 `nvidia-smi` 输出格式碎片化，全面转用 `torch.cuda` API**：`is_available()` / `device_count()` / `get_device_name(0)` / `get_device_properties(0).total_memory`（字节）/ `mem_get_info(0)`（可选，包 try）。显存判断**只按单卡**（`VRAM_GB`），另存 `VRAM_TOTAL_GB` 仅供展示 |
 
 **裁剪**：删 `sdcpp` 全块（含 `/sdcpp/build` 路由、`_sdcpp_*`、`slog`）、删视频块（`VIDEO`/`load_video_pipe`/`render_video`）与视频格；
 `/generate` 对 `kind=video` 直接 400 `video 未移植到 Kaggle 版`；`/health` 去掉 `video_*`/`sdcpp_*`，新增 **`workdir`** 与 **`engine`**（kaggle/colab）自证。
 ⚠️ 删视频块时连 `_is_oom()` 一起删掉了（它原来紧邻视频段），已补回 —— 这类「相邻函数被连带删除」是本轮唯一的代码事故，桩件测出。
 
 **自证版本号**：`BUILD='kg1'`，`/health` 一眼可辨。
+
+#### 14.3.1 🐛 nvidia-smi 在 Kaggle 双卡上翻车（真机原文）
+
+```
+nvidia-smi: could not convert string to float: '15360 \nTesla T4'
+GPU : 无（CPU 档 -> OpenVINO 生图）          ← 明明开着 T4 x2
+```
+- **根因**：`nvidia-smi --query-gpu=name,memory.total --format=csv,noheader` 在**每卡一行**输出，
+  双卡就是两行 `Tesla T4, 15360 MiB`；旧代码 `stdout.split(',')[1]` 拿到的是
+  ` 15360 MiB\nTesla T4`（第二行的卡名被拼进来）→ `float()` 抛 ValueError
+- **后果比报错更糟**：异常被 `except` 吞掉 → `HAS_GPU` 停在 `False` → 整条链路退回 CPU 档，
+  用户看到的是"没有 GPU"而不是"解析失败"（**静默降级**）
+- **修法**：删掉 nvidia-smi 整段，改用 PyTorch 官方 API
+  （[get_device_properties](https://docs.pytorch.org/docs/2.14/generated/torch.cuda.get_device_properties.html) /
+  [get_device_name](https://docs.pytorch.org/docs/stable/generated/torch.cuda.get_device_name.html)）；
+  双卡时 `VRAM_GB` 取 `cuda:0` 单卡、`VRAM_TOTAL_GB` 只展示 —— SDXL fp16 单卡 ~14.6GB 就够，**不盲目求和**
+- **桩件回归（本机 mock torch）**：
+  ① 双卡 `HAS_GPU=True`、单卡 15.0GB / 合计 30.0GB、明确打印"按单卡算"；
+  ② 无卡 `HAS_GPU=False`、提示"若已开 Accelerator → Run/Restart Session 后重跑"；
+  ③ 非注释代码中已无 `nvidia-smi`；
+  ④ `get_device_properties` 抛 `RuntimeError` 时安全降级并打印原文（不静默、不崩）
 
 **桩件回归（本机 exec + 假 flask/torch/diffusers/psutil）**：`/health` 无 `video_*/sdcpp_*` 且 `engine=kaggle`、`workdir=/kaggle/working`（stub 用临时目录）｜
 `kind=video` → 400 原文｜GPU `render_image` 出 PNG 正常｜路由 10 条（无 `/sdcpp/build`）｜全格语法通过。
