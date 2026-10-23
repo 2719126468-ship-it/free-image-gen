@@ -734,3 +734,25 @@ Anima（fp32 512×768）要 89–99s。**要出图速度就用 SDXL 这三档，
 而之前在 notebook 内 `POST /model` 切模型时，6.9GB 权重加载峰值把 kernel 顶死过两次（530）。
 → **换模型/批量出图一律走侧进程，notebook 只留一个小模型（sd_turbo）甚至不用**。
 
+### 14.8 「二次元写实（2.5D）」专用底模实测（2026-10-24）
+
+用户明确要 **二次元写实**。同 prompt（含 `semi-realistic, 2.5D, photorealistic skin texture, 85mm lens`）/
+同 seed 777001 / 832×1216：
+
+| 模型 | 加载 | 步数 | 出图 | 字节 | luma | 对比度 | **边缘锐度** | 判定 |
+|---|---|---|---|---|---|---|---|---|
+| **blue_pencil-XL v7.0.0**（单文件 6.5GB） | 44s | 28 | 26s | 1542483 | 143.6 | **63.5** | **31.1** | ✅ **2.5D 最佳** |
+| animagine-xl-4.0（对照） | 31s | 28 | 27s | 1373407 | 98.1 | 63.0 | 24.5 | 偏暗、偏 2D |
+| nova_xl_lcm（LCM 蒸馏） | — | **8** | **13s** | 1315987 | 141.9 | 45.2 | 19.6 | 最快但最软，适合草稿 |
+
+**两个调用坑（都踩过）**
+1. `sca255/nova_xl_lcm` **只有 fp16 权重** → `from_pretrained` 必须带 `variant='fp16'`，
+   否则 `OSError: Could not find the necessary safetensors weights in {...}`
+2. `bluepen5805/blue_pencil-XL` 是**单文件 ckpt**（47 个版本，最新 v7.0.0）：
+   - 直接给 `from_single_file("https://huggingface.co/.../resolve/main/xxx.safetensors")` 会被判
+     `OSError: ... does not appear to have a file named resolve/main/...`（HEAD 校验过不去）
+   - **正确做法**：`hf_hub_download(repo, filename)` 落盘后再 `from_single_file(local_path)`
+
+**结论**：要「二次元写实」就用 **blue_pencil-XL v7**（对比/锐度双高，26s/张）；
+要批量草稿/测构图用 **nova（8 步 13s）**，定稿再换 blue_pencil 重绘。
+

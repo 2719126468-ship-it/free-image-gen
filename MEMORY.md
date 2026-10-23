@@ -728,6 +728,20 @@ CMake Error at CMakeLists.txt:179 (message):
 md5 `2f442c28…` / `a1afec5f…`（**不同 → seed 生效**）。全链路 `/health → /generate → /result` 通。
 仍缺：animagine 加载秒数（cell 3 输出里）、sd-turbo 512×768@4（须改 `GPU_MODEL` 重跑 cell 3）、剩余 GPU 小时
 
+### 4.15 「二次元写实」用 blue_pencil-XL v7（2026-10-24 实测选型）
+
+用户要 **二次元写实（2.5D）**。同 prompt/seed/832×1216@28 对比后定选：
+
+| 模型 | 出图 | 字节 | luma | 对比 | 边缘 | 备注 |
+|---|---|---|---|---|---|---|
+| **blue_pencil-XL v7.0.0** | 26s | 1.54MB | 143.6 | **63.5** | **31.1** | ✅ 2.5D 最佳（单文件 6.5GB，加载 44s） |
+| animagine-4.0 | 27s | 1.37MB | 98.1 | 63.0 | 24.5 | 偏暗偏 2D |
+| nova_xl_lcm | **13s(8步)** | 1.32MB | 141.9 | 45.2 | 19.6 | 最快最软，草稿用 |
+
+**两个调用坑**：① `sca255/nova_xl_lcm` 只有 fp16 权重 → `from_pretrained(..., variant='fp16')`；
+② `blue_pencil-XL` 是单文件 ckpt，`from_single_file(url)` 会 HEAD 校验失败
+→ 必须 `hf_hub_download(repo, filename)` 落盘再 `from_single_file(local_path)`。
+
 ### 4.14 illustrious vs noobai 对照数据（2026-10-24，cuda:1 侧进程）
 
 同 prompt / 同 seed（777001 人像、777002 全身）/ 832×1216@28，各自官方 cfg：
