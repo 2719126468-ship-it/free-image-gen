@@ -12,6 +12,7 @@
 # - cf    : reads the neurons balance from the Cloudflare GraphQL API.
 # - poll  : nothing to probe; documented rate only.
 set -u
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 TOKEN_FILE="$HOME/.dsh/.hf-token"
 TOKEN=""
@@ -142,3 +143,12 @@ fi
 echo
 echo "================ pollinations ================"
 echo "  documented: 1 image / 45s, no key. Nothing to probe."
+
+echo
+echo "================ 2026-10 新增免费 API 源（无 key 也能探活）================"
+for f in nvidia_nim_gen agnes_gen novita_gen segmind_gen together_gen; do
+  echo "---- $f"
+  timeout 90 python3 "$SCRIPT_DIR/$f.py" --probe 2>&1 | sed 's/^/  /'
+done
+echo
+echo "  key 落点: ~/.dsh/.nim-key | .agnes-key | .novita-key | .segmind-key | .together-key"

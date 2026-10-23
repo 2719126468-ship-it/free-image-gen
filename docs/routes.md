@@ -311,3 +311,124 @@ proot -b $PREFIX/etc/resolv.conf:/etc/resolv.conf -b $PREFIX/etc/hosts:/etc/host
 修复后错误变为 `upstream returned no content frame`（已连通 Google，只是缺登录态）。
 
 **结论：这条路只缺一样东西——Gemini 账号 Cookie（`__Secure-1PSID` + `__Secure-1PSIDTS`）。**
+
+---
+
+## 十三、2026-10 新增免费 API 源实测
+
+> 全部结论来自**本机实测**（Termux，2026-10-23）。有 key 的出图给 HTTP 码 + 字节数 + md5/尺寸；
+> 无 key 的给**错误原文**并标注「待 key」。免绑卡结论优先引用**注册页/官方文档原文**，
+> 二手博客一律标注来源与可信度。
+
+### 13.1 一览
+
+| 平台 | 认证 | 免费额度 | 限速 | 模型 | img2img | 审核 | 实测状态 |
+|---|---|---|---|---|---|---|---|
+| **Cloudflare Workers AI** | Bearer（已有 token） | 10k neurons/天（约 50 张） | 无硬墙 | SDXL / flux-1-schnell / SDXL-Lightning / flux-2-* | ❌ | **有**（NSFW 词会拒） | ✅ **出图** |
+| **NVIDIA NIM** | Bearer `nvapi-*` | 1,000 credits/月 | 实测约 40 RPM | SDXL / FLUX.1-dev / FLUX.1-schnell / SD3-medium | ❌（genai 端点） | 依模型 | ⚠️ 待 key（401 原文已录） |
+| **Agnes AI** | Bearer | 「no token billing, no credit system」 | 社区标称 1K≈20 RPM / 2K≈10 RPM | agnes-image-2.5-flash（1K–4K） | ✅ **支持**（`extra_body.image`，最多 4 张） | 未知 | ⚠️ 待 key（401 原文已录） |
+| **Novita AI** | Bearer | 标称 $10 / 90 天 | 标称 60 RPM | SDXL 等 | 有（图生图端点另设） | 未知 | ⚠️ 待 key |
+| **Segmind** | `x-api-key` | 标称 100 次/天 | — | SDXL 系列 | 有 | 未知 | ⚠️ 待 key |
+| **Together AI** | Bearer | FLUX.1-schnell-**Free** | 标称 3 RPM、1 张/次 | FLUX.1-schnell-Free | ❌ | 有 | ⚠️ 待 key |
+| **Prodia** | — | — | — | — | — | — | ❌ **判死**（域名无 A 记录） |
+| **Pollinations 匿名** | 无 | 1 张 / 45s / IP | 45s | 实际只有 `sana` | ❌ | 无 | ✅ 出图（限流原文已录） |
+
+### 13.2 Cloudflare Workers AI —— 额度已恢复，仍是最快的免费档
+
+```bash
+# 单张 SDXL（返回裸 PNG，不是 JSON）
+curl -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0" \
+  -H "Authorization: Bearer $CF_AI_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"prompt":"a red apple on a wooden table, soft light, photoreal","num_steps":20}' -o out.png
+```
+
+| 模型 | HTTP | 字节 | 形态 | 耗时 |
+|---|---|---|---|---|
+| `@cf/stabilityai/stable-diffusion-xl-base-1.0` | **200** | **980554** | 裸 PNG **1024×1024**，luma 98.8，md5 `12c5917f945887eac93412fd98482806` | ~12s |
+| `@cf/black-forest-labs/flux-1-schnell` | 200 | 579875 | `application/json`（base64 内嵌） | **4.36s** |
+| `@cf/bytedance/stable-diffusion-xl-lightning` | 200 | 66463 | 裸 PNG | 8.17s |
+
+- token 有效：`GET /client/v4/accounts/{acct}/ai/models/search?per_page=3` → 200 / 67458B
+- **neuron 消耗无法从 run 接口读出**（响应里没有用量字段），只能走 GraphQL `aiInferenceAdaptiveGroups` 汇总；
+  之前记的 ~189 neurons/张 → 10k/天 ≈ **50 张**，与实测 RPD 表现一致
+- 已知短板不变：**提示词带 NSFW 相关词会被拒**（非绕过，直接切换引擎）
+
+### 13.3 NVIDIA NIM —— 端点确定，缺 key
+
+```
+GET  https://integrate.api.nvidia.com/v1/models            → HTTP 200（84 个模型，匿名可读；全是 LLM/embedding，**不含图像**）
+POST https://ai.api.nvidia.com/v1/genai/stabilityai/stable-diffusion-xl  → HTTP 401
+     Header of type `authorization` was missing
+POST https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-dev     → HTTP 401（同上）
+```
+- 生图走 `ai.api.nvidia.com/v1/genai/{owner}/{model}`，**与 LLM 的 integrate 域名不同**
+- 免绑卡：综述文章原文「create an NVIDIA Developer account. **It is free and requires no credit card**」
+  （[klymentiev.com](https://klymentiev.com/blog/nvidia-nim-free-credits)，2026-10-04；**二手来源**，
+  官方 `build.nvidia.com` 无静态可抓原文，标注待账号实测）
+- 脚本：`scripts/nvidia_nim_gen.py`（`--probe` 无 key 可跑）→ key 放 `~/.dsh/.nim-key`
+
+### 13.4 Agnes AI —— 免计费 + **支持 img2img**，缺 key
+
+```
+base: https://apihub.agnes-ai.com/v1          （从 ComfyUI-Agnes-AI 源码 API_BASE 实测定位；
+                                               api.agnes.ai / api.agnes-ai.com 均不可用）
+POST /v1/images/generations  无 key → HTTP 401
+     {"error":{"code":"","message":"Token not provided (request id: 2026...JpTR7w7Y)","type":"AgnesAI_error"}}
+POST /v1/models              → HTTP 404 {"error":{"message":"Invalid URL (POST /v1/models)",...}}
+```
+- 请求体（对齐插件 `generate_image()`）：`{model, prompt, size:"1024x1024", seed, extra_body:{image:[b64...], response_format:"b64_json"}}`
+- **img2img 就是 `extra_body.image`**（最多 4 张），对 MEMORY 第二节那个「mermaid 改姿势」任务是现成通道
+- 免费依据：插件 README 原文「**Free** | No token billing, no credit system — get a key and use it」+
+  「Get a free API key: platform.agnes-ai.com」
+- 脚本：`scripts/agnes_gen.py`（`--ref` 走 img2img）→ key 放 `~/.dsh/.agnes-key`
+
+### 13.5 Pollinations 匿名档回归（2026-10-23）
+
+- **限流仍在，原文**：
+  ```
+  HTTP 402 {"status":402,"success":false,"error":{"code":"FREE_LIMIT",
+  "message":"Free limit reached: 1 image every 45 seconds per IP. Retry after 1s, ..."}}
+  ```
+  注意 `Retry after 1s` **不可信**：连续重试仍 402，实测要**等满 ~50s** 才放行。
+- 等满后 `turbo` / `sana` 均成功：
+  - `turbo` 512×512 **22630B** luma 104.1 md5 `96aa99fc177cc642bec0b15cc64e52e2`
+  - `sana` 512×512 **23835B** luma 92.0 md5 `10ceaab482a55fbb5970fb7bddb785a8`
+- `GET image.pollinations.ai/models` 匿名返回 **`["sana"]`** → 印证 4.1 的「匿名档实际只有 sana」，
+  传 `model=flux` 只是别名，最终仍落 sana
+- `scripts/pol_edit.py`（kontext-pro，**0.03 pollen/张**）**本轮未跑** —— 按纪律 #4，烧 pollen 前必须先问用户
+
+### 13.6 P1 四家的探活原文（都卡在 key）
+
+| 平台 | 端点 | 无 key 结果 |
+|---|---|---|
+| Novita | `POST https://api.novita.ai/v3/async/txt2img` | **400** `{"code":400,"reason":"MISSING_API_KEY","message":"missing api-key","metadata":{}}` |
+| Segmind | `POST https://api.segmind.com/v1/sdxl1.0-txt2img` | **401** `{"error": "Missing Authorization or x-api-key in header"}` |
+| Prodia | `POST https://api.prodia.com/v1/job` | **DNS 无 A 记录**（`dns.google` 查 api.prodia.com → Status 0 且无 Answer）→ **判死**；`docs.prodia.com` 仍 200 |
+| Together | `POST https://api.together.xyz/v1/images/generations` | **401** `Missing API key. You need to provide your API key in an Authorization header using Bearer auth` |
+
+**踩坑**：Together 前置 Cloudflare，`python-urllib` 默认 UA 会被拦成 **403 `error code: 1010`**；
+所有新脚本统一加了 `User-Agent: Mozilla/5.0 (compatible; free-image-gen/1.0)`。
+
+### 13.7 排除项复核
+
+- **Modal**：官方 pricing 页（2026-10-23 抓取）原文
+  「**Starter has no monthly fee and includes $30 of compute (GPUs, CPUs, Memory) per month**」，
+  整页检索 `credit card` **0 命中**。也就是说「$30 档必须绑卡 / 免绑卡只有 $5/月」这条
+  **在本机可验证范围内拿不到官方原文支撑**（要确认只能真去注册一次）。
+  → 处理：`scripts/modal_sdxl.py` **降级为「有卡时备用」**，不进主力；MEMORY 4.8 已同步纠正措辞。
+- **Paperspace 免费档**（M4000 8GB）：SDXL fp16 需 ~7GB 权重 + 激活，8GB 必 OOM → 不进候选。
+- **TensorArt**：网页端无稳定公开 API → 不进候选。
+- **HF Serverless**：5–10 次/分钟，仅作 fallback（已有 `space_gen.sh` / `anima_gen.sh` 覆盖）。
+- **Replicate**：API 需绑卡（与 Vercel 同类）→ 不进候选。
+
+### 13.8 结论：谁进主力 / 谁进 fallback / 谁判死
+
+| 归类 | 源 | 一句话理由 |
+|---|---|---|
+| **主力** | Cloudflare Workers AI | 额度已恢复、4–12s 出图、裸 PNG、无需新注册 —— 目前唯一「零成本 + 秒级 + 免绑卡」 |
+| **主力（限流备用）** | Pollinations 匿名 | 零 key 零注册，但 1 张/45s 且只有 sana，只配当 quirk fallback |
+| **待 key 即用** | Agnes AI | 唯一**明确支持 img2img** 且宣称免计费，对创作任务价值最高（拿到 key 优先接） |
+| **待 key 即用** | NVIDIA NIM | 免费 1,000 credits/月，SDXL/FLUX 都在，但免绑卡只有二手来源，需账号实测 |
+| **待 key 观察** | Novita / Segmind / Together | 都是「注册送额度」型，额度真实性必须账号实测，暂不进主力 |
+| **判死** | Prodia | `api.prodia.com` 已无 A 记录，域名层面不可达 |
+| **降级备用** | Modal | 官方页只说 $30 免费 compute，绑卡要求无原文支撑；按用户结论降为「有卡时备用」 |

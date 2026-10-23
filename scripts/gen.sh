@@ -45,6 +45,11 @@ engine:
   horde  AI Horde SDXL - unlimited, no filter, 8-15 min at the current worker trough
   cf     Cloudflare Workers AI - fast, ~50/day, HAS NSFW filter
   poll   Pollinations - ~9s, zero-key, 1 image/45s, sana engine, watermark
+  nim    NVIDIA NIM (build.nvidia.com) - 1,000 credits/mo free, needs ~/.dsh/.nim-key
+  agnes  Agnes AI - free/no-billing, OpenAI-compatible, supports img2img, ~/.dsh/.agnes-key
+  novita Novita AI - $10/90d claim, async task API, needs ~/.dsh/.novita-key
+  segmind Segmind - 100/day claim, x-api-key, needs ~/.dsh/.segmind-key
+  together Together AI - FLUX.1-schnell-Free, needs ~/.dsh/.together-key
   list   show quota status of every engine and exit
 EOF
   exit 2
@@ -131,5 +136,10 @@ case "$ENGINE" in
   horde) run_horde ;;
   cf)    run_cf ;;
   poll)  run_poll ;;
+  nim)      exec python3 "$SCRIPT_DIR/nvidia_nim_gen.py" "$OUTDIR/nim_$(date +%s).png" "$PROMPT" ;;
+  agnes)    exec python3 "$SCRIPT_DIR/agnes_gen.py"     "$OUTDIR/agnes_$(date +%s).png" "$PROMPT" ;;
+  novita)   exec python3 "$SCRIPT_DIR/novita_gen.py"    "$OUTDIR/novita_$(date +%s).png" "$PROMPT" ;;
+  segmind)  exec python3 "$SCRIPT_DIR/segmind_gen.py"   "$OUTDIR/segmind_$(date +%s).png" "$PROMPT" ;;
+  together) exec python3 "$SCRIPT_DIR/together_gen.py"  "$OUTDIR/together_$(date +%s).png" "$PROMPT" ;;
   *) echo "[!] unknown engine: $ENGINE"; exit 2 ;;
 esac
