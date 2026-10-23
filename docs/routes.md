@@ -707,3 +707,30 @@ curl -s http://<tunnel>/health | jq '{gpu_model,switching,switch_error,switch_la
 **已写回 `examples/anima_kaggle.ipynb` cell 3**：`GPU_MODEL='anima'` 现在走完整修正路径，
 默认 **512×768@24**，`/model {"name":"anima"}` 可直接切（加载约 20s，之后 90-100s/张）。
 
+### 14.7 illustrious vs noobai 同条件对照（2026-10-24，cuda:1 侧进程）
+
+**方法**：两模型共用同一 prompt / 同一 seed / 同一分辨率步数，各自官方推荐 cfg；
+全程跑在 **`CUDA_VISIBLE_DEVICES=1` 的独立进程**里（notebook 的 cuda:0 不动，跑完 notebook 仍存活）。
+
+| 维度 | illustrious（cfg 6.0） | noobai（cfg 5.0） |
+|---|---|---|
+| 仓库 | `OnomaAIResearch/Illustrious-xl-early-release-v0` | `Laxhar/noobai-XL-1.1` |
+| 加载 | **41s** | **63s** |
+| 显存 | 6.5GB | 6.5GB |
+| 出图 | **26s / 25s** | **26s / 27s** |
+| 人像 832×1216 | 1464872B，luma 132.2，**sd 31.2** | 1389689B，luma 149.4，**sd 42.2** |
+| 全身 832×1216 | 1283470B，luma 139.7，**sd 38.6** | 1128076B，luma 147.2，**sd 56.4** |
+| md5 | `d355be3a…` / `acdb8e0b…` | `4b1990f5…` / `54fc4a3f…` |
+
+**客观差异（不靠肉眼也能看出的一条）**：**noobai 的亮度标准差明显更高**（+11 / +18），
+即对比更强、明暗层次更戏剧化；illustrious 更平、更均匀 —— 与两个模型的口碑一致：
+- **illustrious**：干净的赛璐璐/官方绘柄，脸部与五官稳定，画面"平"，适合做角色立绘与统一风格输出
+- **noobai**：标签驱动更强、光影与材质更重，画面信息密度高，但同一 prompt 下更容易"过火"（背景杂、对比重）
+
+**成本结论**：两模型同尺寸同 steps 都是 **25–27s/张**、6.5GB，和 animagine 同档；
+Anima（fp32 512×768）要 89–99s。**要出图速度就用 SDXL 这三档，要质感就忍 Anima 的 90s。**
+
+**稳定性经验（重要）**：把重活放 cuda:1 侧进程后，notebook **全程没死**；
+而之前在 notebook 内 `POST /model` 切模型时，6.9GB 权重加载峰值把 kernel 顶死过两次（530）。
+→ **换模型/批量出图一律走侧进程，notebook 只留一个小模型（sd_turbo）甚至不用**。
+

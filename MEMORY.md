@@ -728,6 +728,62 @@ CMake Error at CMakeLists.txt:179 (message):
 md5 `2f442c28…` / `a1afec5f…`（**不同 → seed 生效**）。全链路 `/health → /generate → /result` 通。
 仍缺：animagine 加载秒数（cell 3 输出里）、sd-turbo 512×768@4（须改 `GPU_MODEL` 重跑 cell 3）、剩余 GPU 小时
 
+### 4.14 illustrious vs noobai 对照数据（2026-10-24，cuda:1 侧进程）
+
+同 prompt / 同 seed（777001 人像、777002 全身）/ 832×1216@28，各自官方 cfg：
+
+| 模型 | 加载 | 显存 | 出图 | 人像 | 全身 | 观感（含客观指标） |
+|---|---|---|---|---|---|---|
+| illustrious (cfg6.0) | 41s | 6.5GB | 26s/25s | 1.46MB luma132.2 **sd31.2** | 1.28MB luma139.7 **sd38.6** | 平、干净、赛璐璐/官方绘柄，脸部稳 |
+| noobai (cfg5.0) | 63s | 6.5GB | 26s/27s | 1.39MB luma149.4 **sd42.2** | 1.13MB luma147.2 **sd56.4** | 对比/层次强，标签驱动猛，易"过火" |
+
+**客观判别**：noobai 的亮度标准差比 illustrious 高 +11/+18（对比更强、光影更重）——
+不用肉眼看也能区分。两者都与 animagine 同档（25–27s/张、6.5GB）；
+Anima fp32 512×768 要 89–99s。
+
+**稳定性铁律（两次 530 换来的）**：**不要在 notebook 内切模型/跑重活** ——
+`POST /model` 加载 6.9GB 权重的峰值把 kernel 顶死过两次。
+→ 换模型与批量出图一律走 `CUDA_VISIBLE_DEVICES=1` 的**侧进程**（脚本经 `/sh` 写入并 `setsid` 后台跑），
+notebook 只留小模型甚至不用；本轮 A/B 全程 notebook 存活。
+
+### 4.13 ✅ Anima 在 Kaggle T4 上可用（fp32 / 512×768 / 89-99s）—— 三个坑的解法（2026-10-24 实测）
+
+用户问「真的不能用 anima 吗」→ **能用**，但必须按实测修正的三点来，否则必炸：
+
+| 坑 | 报错原文 | 解法 |
+|---|---|---|
+| `t5_tokenizer` 装不上 | `ValueError: Either model_file or model_proto must be specified.`（repo 只有 tokenizer.json，**无 spiece.model**） | 用 `T5TokenizerFast` |
+| 它的 config 不兼容 | `AttributeError: 'list' object has no attribute 'keys'`（`extra_special_tokens` 是 list，4.5x 要 dict） | 本地改 `{}` + 去掉 `tokenizer_class` |
+| guider 缺失 | `TypeError: 'NoneType' object is not callable`（`load_components()` 不加载 guider） | `update_components(guider=ClassifierFreeGuidance(4.5))` |
+| tokenizer 静默失败 | 同上 NoneType（Qwen2 tokenizer 也没载入） | 显式 `AutoTokenizer(..., subfolder='tokenizer')` |
+| dtype 传参无效 | 警告 `Unexpected input 'dtype'` | 逐组件 `.to(torch.float32)`；**T4 无 bf16，fp16=100% 黑图** |
+
+**性能**：加载 20–22s（HF 缓存）｜显存 10.5/14.56GB｜**512×768@24 = 89–99s/张**；
+**640×960 必 OOM**（fp32 >14.5GB），且 `AnimaModularPipeline` **没有** `enable_model_cpu_offload`（实测 AttributeError）
+→ **分辨率天花板 512×768**。
+
+**多卡白捡的算力**：Kaggle T4 x2 是两张独立 15GB 卡，notebook 占 `cuda:0`，
+Anima 可放 `CUDA_VISIBLE_DEVICES=1` 独立进程并行跑（本轮 4 张即如此）。
+**文件取回**：0x0.st 停服、x0.at 弹验证码、tmpfiles 直链是 HTML → 用 **pomf2.lain.la** 或 **qu.ax** 出直链。
+
+已写回 notebook cell 3：`GPU_MODEL='anima'` 走完整修正路径（默认 512×768@24），`/model` 可直接切。
+
+### 4.12 ★ Kaggle 换模型：远端 `/model` + 三个可用的动漫底（2026-10-24）
+
+用户嫌 `animagine-xl-4.0`「不好看」→ 核实并接入两个更强的 SDXL 动漫底：
+
+| 档 | 仓库 | 核实结论 |
+|---|---|---|
+| `illustrious` | OnomaAIResearch/Illustrious-xl-early-release-v0 | **diffusers 格式 ✅**、437 likes、ungated → 默认 832×1216@28 cfg6.0 |
+| `noobai` | Laxhar/noobai-XL-1.1 | **diffusers 格式 ✅**、190 likes、ungated → 默认 832×1216@28 cfg5.0 |
+| ~~pony6~~ | AstraliteHeart/pony-diffusion-v6-xl | **HF API 401** → 已下架/受限，排除 |
+| `anima` | circlestone-labs/Anima-Base-v1.0-Diffusers | 无 model_index.json（ModularPipeline），bf16 训练 → **T4 只能 fp32**，慢 |
+
+**关键改动：模型可以远端切了**。cell 3 抽出 `load_gpu_model(name)`（删旧 pipe → 载新 → 512 测试图防黑图 →
+更新全局 `GPU_MODEL`），cell 4 新增 `GET/POST /model`（后台线程，不阻塞隧道），`/health` 增加
+`gpu_models` / `switching` / `switch_error` / `switch_last`。**以后换模型不用让用户改 cell 3 重跑**。
+桩件 8/8 通过（默认加载、两次热切、未知模型 400、无 loader 400、黑图置空、GET 列表、后台切换状态）。
+
 ### 4.10 ★ 2026-10 新增免费 API 源实测（详见 docs/routes.md 第十三节）
 
 **一句话结论**：CF Workers AI 额度**已恢复**（唯一「零成本+秒级+免绑卡」）；
