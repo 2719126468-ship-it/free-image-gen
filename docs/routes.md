@@ -406,6 +406,10 @@ POST /v1/models              → HTTP 404 {"error":{"message":"Invalid URL (POST
 | Prodia | `POST https://api.prodia.com/v1/job` | **DNS 无 A 记录**（`dns.google` 查 api.prodia.com → Status 0 且无 Answer）→ **判死**；`docs.prodia.com` 仍 200 |
 | Together | `POST https://api.together.xyz/v1/images/generations` | **401** `Missing API key. You need to provide your API key in an Authorization header using Bearer auth` |
 
+**额度真实性分级（重要）**：Novita/Segmind/Together 的「$10/90天」「100次/天」「FLUX schnell 免费」
+**本轮只拿到标称，没有抓到注册页或官方文档原文** —— 因此一律标注「标称未证实」，
+拿到 key 后第一件事是用 `--probe` 加一张实图核对，别把它们算进可用额度。
+
 **踩坑**：Together 前置 Cloudflare，`python-urllib` 默认 UA 会被拦成 **403 `error code: 1010`**；
 所有新脚本统一加了 `User-Agent: Mozilla/5.0 (compatible; free-image-gen/1.0)`。
 
