@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-18 13:45（第 12 次修订：★ 新增 4.9 **Colab CPU v7 = sdcpp(GGUF) 引擎**；真机把「CPU 退 fp16」钉成 588s/步；闸门改分辨率感知 + force_dtype + /health 报 avail_ram_gb；插件枚举静默黑洞修掉）
+> 最后更新：2026-10-23 18:40（第 13 次修订：★ 新增 4.10 + routes.md 第十三节「2026-10 新增免费 API 源实测」——CF 额度已恢复并出真图、NIM/Agnes 端点与 401 原文坐实（待 key）、Prodia 判死、Modal 降级；特性提交 `500b295`）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -32,6 +32,11 @@
 └── scripts/
     ├── vercel_img.py      ← Vercel AI Gateway img2img（**需绑卡**，实测 403，封存待用）
     ├── replicate_edit.py  ← ★ Replicate Try-for-Free img2img（有限次数）
+    ├── nvidia_nim_gen.py  ← ★ NVIDIA NIM 文生图（免费 1000 credits/月，待 key）
+    ├── agnes_gen.py       ← ★ Agnes AI（免计费 + **支持 img2img**，待 key）
+    ├── novita_gen.py      ← ★ Novita 异步任务式文生图（待 key）
+    ├── segmind_gen.py     ← ★ Segmind 文生图（x-api-key，待 key）
+    ├── together_gen.py    ← ★ Together FLUX.1-schnell-Free（待 key）
     ├── pol_anon.py        ← ★ 匿名档文生图（零 key）
     ├── pol_edit.py        ← ★ 新版 API img2img（pollen key）
     ├── horde_img2img.py   ← ★ Horde img2img（免费无审查，排队久）
@@ -79,7 +84,13 @@
 | **Pollinations 匿名** `pol_anon.py` | 无 | ✅ | ❌ **已证伪** | 1–5s | 1张/45s/IP | 无 |
 | Gemini web 反代 | Gemini Cookie | ✅ | ✅ | 快 | 普号免费 | **禁 NSFW** |
 | HF ZeroGPU `anima_gen.sh` | HF token | ✅ | — | 1–10s | 5min GPU/天（已耗尽） | 无 |
-| Cloudflare `gen_image.sh cf` | API token | ✅ | — | 5–15s | ~50张/天 | 有过滤 |
+| **Cloudflare Workers AI**（2026-10-23 复测：**额度已恢复**） | API token | ✅ | — | 4–12s | ~50张/天 | 有过滤 |
+| **NVIDIA NIM** `nvidia_nim_gen.py` | `nvapi-*` | ⚠️待key | — | — | 1,000 credits/月 | 依模型 |
+| **Agnes AI** `agnes_gen.py` | Bearer（宣称不计费） | ⚠️待key | **✅ `extra_body.image`** | — | 宣称 no token billing | 未知 |
+| Novita `novita_gen.py` | Bearer | ⚠️待key | 有（另端点） | — | 标称 $10/90天 | 未知 |
+| Segmind `segmind_gen.py` | `x-api-key` | ⚠️待key | 有 | — | 标称 100/天 | 未知 |
+| Together `together_gen.py` | Bearer | ⚠️待key | — | — | FLUX.1-schnell-Free、3 RPM | 有 |
+| ~~Prodia~~ | — | ❌ | — | — | — | **判死：api.prodia.com 无 A 记录** |
 | HF Inference router | HF token | ❌ | ❌ **402 免费额度已取消** | — | 2026-10-08 起无 | — |
 | HF Spaces ZeroGPU Kontext | 匿名/token | — | ❌ **额度封顶** | — | 需 PRO | — |
 | Gemini 官方 API | API key | ❌ | ❌ **图像无免费档** | — | $0.0336/张起 | 严 |
@@ -413,7 +424,7 @@ AVX512_BF16 首次出现于 **Cooper Lake(2021)/Ice Lake+**；**Colab 免费档�
 | 方案 | 可行性 | 实测/查证依据 | 状态 |
 |---|---|---|---|
 | **sdcpp + GGUF Q4_K** | ★最实际 | `off-grid-ai/animagine-xl-4.0-GGUF` Q4_K=**2.80GB** ungated；ggml 用 AVX2/AVX512 原生 int kernel，非 PyTorch 软件 fallback | `scripts/sdcpp_colab.sh` 已写，参数对 upstream 源码核实 |
-| **Modal 免费 GPU** | ★最省心 | Starter **$30/月**免费额度（pricing yml 已核）、按秒计费、A10G SDXL ~3s/张 | `scripts/modal_sdxl.py` 已写，py_compile 通过；需 `pip install modal && modal token new` |
+| **Modal 免费 GPU** | ⚠️降级备用 | 官方 pricing 页（2026-10-23 抓取）原文「Starter has no monthly fee and includes $30 of compute (GPUs, CPUs, Memory) per month」，全页 `credit card` **0 命中** → 「$30 档必须绑卡」在可验证范围内**无官方原文支撑**（只能真注册证实）；按用户结论**降级为「有卡时备用」** | `scripts/modal_sdxl.py` 保留；需 `pip install modal && modal token new` |
 | Colab CPU + bf16 | ⚠️ 看运气 | 取决于分到的 CPU 是否 Ice Lake+；免费档大概率 Skylake/Cascade → 无效 | v6 已自动探测，cell8 实测 |
 | Colab GPU | 等配额 | animagine fp16 30s/张 @832×1216，画质最好 | GPU 耗尽中，`/health` 看 `gpu:true` |
 
@@ -578,7 +589,8 @@ tail 留痕｜失败时 tail 双写（job error + sdcpp_log）。
 #### 4.9.6 🔴 512×768 也撑不住 + **拿到 sd.cpp 的硬速度数字**（隧道 `handle-hose-combining-converted`）
 
 **sdcpp 加载依旧 45 秒**（prebuilt + 2.8GB GGUF），`/sh` 里 `nproc=2`、`/` 87G。
-**首次拿到真实进度**（v7.4 的 `` 解析生效）：
+**首次拿到真实进度**（v7.4 的 `
+` 解析生效）：
 ```
 15:09:19  progress 1/15  elapsed 332.3  last_line "|===> | 1/15 - 163.30s/it"
 15:11:42  progress 2/15  elapsed 488.7   （第 2 步 156.4s）
@@ -665,6 +677,27 @@ CMake Error at CMakeLists.txt:179 (message):
 - 结论：**等 GPU / 等 sdcpp 真机验证期间，SDXL 画质的现成来源是 Horde**（`scripts/horde_gen.sh`，
   `HORDE_MODELS='Animagine XL'` 单模型跑最稳，别混多模型让它排队轮换）
 
+### 4.10 ★ 2026-10 新增免费 API 源实测（详见 docs/routes.md 第十三节）
+
+**一句话结论**：CF Workers AI 额度**已恢复**（唯一「零成本+秒级+免绑卡」）；
+NIM / Agnes 端点与鉴权方式已坐实但**都缺 key**（Agnes 是唯一明确支持 img2img 的免费候选）；
+Prodia **判死**（域名无 A 记录）；Modal 按用户结论**降级为「有卡时备用」**。
+
+| 源 | 免绑卡 | 实测证据 | 状态 |
+|---|---|---|---|
+| Cloudflare Workers AI | ✅（已有 token） | SDXL 1024²：**HTTP 200 / 980554B / md5 `12c5917f…` / luma 98.8**；flux-schnell 4.36s；lightning 8.17s | **主力** |
+| Pollinations 匿名 | ✅ 零注册 | 402 `FREE_LIMIT`（1 张/45s）原文已录；等满后 turbo/sana 各出一张 512²（22630B / 23835B）；`/models` 匿名只回 `["sana"]` | **限流备用** |
+| NVIDIA NIM | 二手来源称免卡 | `integrate…/v1/models` 匿名 200（84 个，全 LLM）；`ai.api.nvidia.com/v1/genai/…` → **401 `Header of type authorization was missing`** | 待 key |
+| Agnes AI | 宣称无计费 | `apihub.agnes-ai.com/v1/images/generations` → **401 `Token not provided`**；`/v1/models` → 404 Invalid URL | 待 key（**优先接**，因支持 img2img） |
+| Novita | 标称 $10/90天 | **400 `MISSING_API_KEY`** | 待 key |
+| Segmind | 标称 100/天 | **401 `Missing Authorization or x-api-key`** | 待 key |
+| Together | FLUX schnell Free | **401** Missing API key（注意：urllib 默认 UA 会被 CF 拦成 **403 error code: 1010**，脚本已统一加 UA） | 待 key |
+| Prodia | — | `dns.google` 查 `api.prodia.com`：Status 0 **无 Answer**（无 A 记录） | **判死** |
+
+**纪律执行**：`pol_edit.py`（kontext-pro 0.03 pollen/张）**本轮未跑** —— 烧 pollen 前先问用户（#4）。
+`gen.sh` / `gen_quota.sh` 已注册 5 个新引擎名（`nim|agnes|novita|segmind|together`），
+`--probe` 无 key 也能跑，输出直接带状态码与原文。
+
 ---
 
 ## 五、凭据清单（全部 600 权限，**绝不 commit**）
@@ -719,6 +752,8 @@ CMake Error at CMakeLists.txt:179 (message):
       新 URL 写回 `~/.dsh/.colab-url` → `GET /sdcpp/build` 预热（看 `/health` 的 `sdcpp_building/error`）
       → `POST /generate {"cpu_preset":"sdcpp","width":832,"height":1216,"steps":25}` → 把
       build 耗时、每步秒数、产物校验写进 4.9。**这是 CPU 上唯一能跑完 SDXL 的路**
+- [x] **★ 2026-10 新源接入**：CF 额度已恢复（真图已出）；NIM/Agnes/Novita/Segmind/Together 脚本就绪并探活，
+      只缺 key（放 `~/.dsh/.{nim,agnes,novita,segmind,together}-key`）；Prodia 判死；Modal 降级（详见 4.10 + routes.md §13）
 - [ ] **★ SDXL 画质（用户明确要）**：bf16 已证伪（上游结论见上一行），剩余两条：sdcpp(v7，待真机) / Modal 免费 GPU（`scripts/modal_sdxl.py`，需 `modal token new`）；先重开 notebook 跑 **cell1**（看 CPU 型号+bf16 判定）
       和 **cell8**（bf16/fp32/fp16 单步实测）→ 若 bf16 真快则 CPU 走 bf16；
       否则走 `scripts/sdcpp_colab.sh`（Q4_K 2.8GB，CPU 唯一能跑完 SDXL 的路）或 `scripts/modal_sdxl.py`（A10G 3s/张）
