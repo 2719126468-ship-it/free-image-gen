@@ -572,7 +572,8 @@ Settings → Accelerator、Internet。这两步都不是本机脚本能做的，
 | 3. cloudflared | `BIN = os.path.join(WORK, 'cloudflared')`（Kaggle 的 `/usr/local/bin` 不一定可写） |
 | 4. 交互式限定 | cell 0 与末格都写明：**必须 interactive Run，不能 "Save & Run All"**（否则拿不到运行期 tunnel URL） |
 | 5. 空闲超时 | cell 0 写明 kernel 空闲会自动停、隧道随即断，定位是「手动出图环境」不是后台挂机 |
-| 6. **GPU 检测（2026-10-23 修）** | **规避 `nvidia-smi` 输出格式碎片化，全面转用 `torch.cuda` API**：`is_available()` / `device_count()` / `get_device_name(0)` / `get_device_properties(0).total_memory`（字节）/ `mem_get_info(0)`（可选，包 try）。显存判断**只按单卡**（`VRAM_GB`），另存 `VRAM_TOTAL_GB` 仅供展示 |
+| 6. **远端切模型（2026-10-24 加）** | cell 3 抽出 `load_gpu_model(name)`（删旧 pipe → 载新模型 → 512 测试图防黑图 → 更新全局）；cell 4 新增 **`GET/POST /model`**：`GET` 列可用档，`POST {"name":...}` 后台线程切换（不动隧道）。**换模型不再需要手改 cell 3 重跑** |
+| 7. **GPU 检测（2026-10-23 修）** | **规避 `nvidia-smi` 输出格式碎片化，全面转用 `torch.cuda` API**：`is_available()` / `device_count()` / `get_device_name(0)` / `get_device_properties(0).total_memory`（字节）/ `mem_get_info(0)`（可选，包 try）。显存判断**只按单卡**（`VRAM_GB`），另存 `VRAM_TOTAL_GB` 仅供展示 |
 
 **裁剪**：删 `sdcpp` 全块（含 `/sdcpp/build` 路由、`_sdcpp_*`、`slog`）、删视频块（`VIDEO`/`load_video_pipe`/`render_video`）与视频格；
 `/generate` 对 `kind=video` 直接 400 `video 未移植到 Kaggle 版`；`/health` 去掉 `video_*`/`sdcpp_*`，新增 **`workdir`** 与 **`engine`**（kaggle/colab）自证。
@@ -638,4 +639,31 @@ GPU : 无（CPU 档 -> OpenVINO 生图）          ← 明明开着 T4 x2
 **结论**：Kaggle 版已可当 Colab GPU 的备用出图环境 —— 走通 `/health` + `/generate` + `/result` 全链路，
 速度 22–30s/张，双卡按单卡判断正确。
 
+### 14.5 换模型：T4 上核实可用的动漫底（2026-10-24）
+
+用户反馈 `animagine-xl-4.0` 出图「不咋好看」，于是核实在 T4/Kaggle 上**真能加载**的替代底模：
+
+| 档（`GPU_MODEL`） | 仓库 | 格式 | HF 数据 | 备注 |
+|---|---|---|---|---|
+| `illustrious` | `OnomaAIResearch/Illustrious-xl-early-release-v0` | **diffusers**（model_index.json ✅） | 437 likes / 109869 dl | 审美好、Danbooru 标签体系，SDXL fp16 安全；默认 832×1216@28 cfg6.0 |
+| `noobai` | `Laxhar/noobai-XL-1.1` | **diffusers** ✅ | 190 likes / 265753 dl | 当代画风、标签理解更强；默认 832×1216@28 cfg5.0 |
+| `animagine` | `cagliostrolab/animagine-xl-4.0` | diffusers ✅ | 559 likes | 现用，用户不满 |
+| `anima` | `circlestone-labs/Anima-Base-v1.0-Diffusers` | ModularPipeline（无 model_index.json） | 20 likes | bf16 训练 → **T4 只能 fp32**，慢 |
+| ~~`pony6`~~ | `AstraliteHeart/pony-diffusion-v6-xl` | — | **API 401** | 已下架/权限受限，**排除** |
+
+**T4 硬约束（决定为什么只能选这些）**：T4 无 bf16 → 任何 bf16 底模只能 fp32（14.6GB 显存下只够 512×768 附近）；
+所以替补一律选 **fp16 安全的 SDXL 衍生底**（illustrious / noobai / animagine 都属此类）。
+
+**切换方式（新版 notebook）**：
+```bash
+curl -s http://<tunnel>/model                      # 列可用档与当前档默认参数
+curl -s -X POST http://<tunnel>/model -H 'Content-Type: application/json' -d '{"name":"illustrious"}'
+curl -s http://<tunnel>/health | jq '{gpu_model,switching,switch_error,switch_last}'
+```
+切模型是**后台线程**（不阻塞隧道），状态看 `/health` 的 `switching` / `switch_error` / `switch_last`；
+切完 `GPU_DEFAULTS` 的默认分辨率/步数/cfg 自动跟着新模型走（`/generate` 不传参就是官方推荐值）。
+
+**桩件 8/8**：默认加载 animagine｜热切 illustrious（默认 832×1216@28 cfg6.0）｜再切 noobai（cfg5.0）｜
+未知模型 400 并附可选列表｜黑图时 `pipe=None` 且报错｜`/model` 路由存在｜GET 返回 current/models/defaults｜
+无 `load_gpu_model`（CPU 档/未跑 cell3）→ 400｜POST 后台切换写入 `MODEL_SW`。
 
