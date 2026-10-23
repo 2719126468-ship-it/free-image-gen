@@ -390,6 +390,8 @@ POST /v1/models              → HTTP 404 {"error":{"message":"Invalid URL (POST
 | **t2i** `agnes-image-2.0-flash` 1024×1024 | **HTTP 200 / 760830B / 1024×1024 / md5 `560b3b452784b667…` / luma 225.8 / 12.5s** |
 | **i2i** `--ref ~/tmp/ref_mermaid.jpg` 768×1024 | **HTTP 503 ×3 次**（间隔 20s / 45s）原文：`{"error":{"message":"image queue is full, please retry later (request id: 2026...fD7F5w2G)","type":"","param":"","code":null}}` |
 
+- **共 4 次 503**（间隔 20s / 45s / 10min 各一次，最后一次在首次尝试 17 分钟后仍是 503），
+  说明是**持续容量不足**，不是瞬时突发
 - 503 是**服务端图像队列打满**，不是格式错（格式错会是 400，且不会带 request id）。
   即 **Agnes 的 img2img 通路「格式已被接受」，但当前容量接不住**，需要错峰重试
 - 返回形态：`data[0].url`（b64_json 为空串），脚本已按「先 b64 再 url 下载」处理

@@ -698,7 +698,7 @@ Prodia **判死**（域名无 A 记录）；Modal 按用户结论**降级为「�
 | Cloudflare Workers AI | ✅（已有 token） | SDXL 1024²：**HTTP 200 / 980554B / md5 `12c5917f…` / luma 98.8**；flux-schnell 4.36s；lightning 8.17s | **主力** |
 | Pollinations 匿名 | ✅ 零注册 | 402 `FREE_LIMIT`（1 张/45s）原文已录；等满后 turbo/sana 各出一张 512²（22630B / 23835B）；`/models` 匿名只回 `["sana"]` | **限流备用** |
 | NVIDIA NIM | 二手来源称免卡 | `integrate…/v1/models` 匿名 200（84 个，全 LLM）；`ai.api.nvidia.com/v1/genai/…` → **401 `Header of type authorization was missing`** | 待 key |
-| **Agnes AI** | ✅ 实测（key 到手后） | **t2i 200 / 760830B / 1024² / md5 `560b3b45…` / 12.5s**；i2i 格式被接受但**三次 503 `image queue is full`** | **t2i 已验证**；i2i 待错峰 |
+| **Agnes AI** | ✅ 实测（key 到手后） | **t2i 200 / 760830B / 1024² / md5 `560b3b45…` / 12.5s**；i2i 格式被接受但**四次 503 `image queue is full`**（跨 17 分钟仍满） | **t2i 已验证**；i2i 待错峰 |
 | **Claw Hunter Worker** | 自控端点 | `wrangler --version` → **`Error: Unsupported platform: android arm64 LE`**（workerd 无 android/arm64 构建） | **待桌面端部署**（客户端脚本已就绪） |
 | Novita | 标称 $10/90天 | **400 `MISSING_API_KEY`** | 待 key |
 | Segmind | 标称 100/天 | **401 `Missing Authorization or x-api-key`** | 待 key |
