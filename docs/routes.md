@@ -561,8 +561,39 @@ Settings → Accelerator、Internet。这两步都不是本机脚本能做的，
    比 Colab 免费档宽松，但**不能用 "Save & Run All"** 拿 tunnel URL（必须交互跑）
 5. **cloudflared quick tunnel 是否在 Kaggle 出网白名单内**：未验证 —— 这是移植前第一个要试的点
 
-### 14.3 待用户执行后回填
+### 14.3 Kaggle 版适配已完成（`examples/anima_kaggle.ipynb`，2026-10-23）
 
-跑完三格，把以下四项贴回来，我补成本节的「实测表」并更新总表：
-GPU 型号/显存、animagine（加载/推理/尺寸/字节/md5）、sd-turbo（同上）、Settings 里的**剩余 GPU 小时数**。
+由 `anima_colab.ipynb`（v7.5）派生，**去掉 sdcpp/GGUF 与视频**，按 5 个适配点改写：
+
+| 适配点 | 落地 |
+|---|---|
+| 1. 依赖格 | 加 `IN_KAGGLE = os.path.isdir('/kaggle')`；`%pip install -U "diffusers>=0.35" "transformers>=4.44,<5"`（Kaggle 预装 torch 2.11.0+cu128），装完打印 diffusers/transformers/torch+cuda 版本；失败给「降级 sd_turbo」提示 |
+| 2. 路径 | `WORK = /kaggle/working`；`OUT_DIR = /kaggle/working/out`；`SDCPP_DIR = WORK`；cell 4 顶部对 `WORK/IN_KAGGLE` 做 `globals().get()` 兜底（单独重跑 cell 4 也不 NameError） |
+| 3. cloudflared | `BIN = os.path.join(WORK, 'cloudflared')`（Kaggle 的 `/usr/local/bin` 不一定可写） |
+| 4. 交互式限定 | cell 0 与末格都写明：**必须 interactive Run，不能 "Save & Run All"**（否则拿不到运行期 tunnel URL） |
+| 5. 空闲超时 | cell 0 写明 kernel 空闲会自动停、隧道随即断，定位是「手动出图环境」不是后台挂机 |
+
+**裁剪**：删 `sdcpp` 全块（含 `/sdcpp/build` 路由、`_sdcpp_*`、`slog`）、删视频块（`VIDEO`/`load_video_pipe`/`render_video`）与视频格；
+`/generate` 对 `kind=video` 直接 400 `video 未移植到 Kaggle 版`；`/health` 去掉 `video_*`/`sdcpp_*`，新增 **`workdir`** 与 **`engine`**（kaggle/colab）自证。
+⚠️ 删视频块时连 `_is_oom()` 一起删掉了（它原来紧邻视频段），已补回 —— 这类「相邻函数被连带删除」是本轮唯一的代码事故，桩件测出。
+
+**自证版本号**：`BUILD='kg1'`，`/health` 一眼可辨。
+
+**桩件回归（本机 exec + 假 flask/torch/diffusers/psutil）**：`/health` 无 `video_*/sdcpp_*` 且 `engine=kaggle`、`workdir=/kaggle/working`（stub 用临时目录）｜
+`kind=video` → 400 原文｜GPU `render_image` 出 PNG 正常｜路由 10 条（无 `/sdcpp/build`）｜全格语法通过。
+
+**本机侧**：`~/.dsh/.kaggle-url` 与 `~/.dsh/.colab-url` **互为等价**（前者是后者的软链）；
+`colab_gen.sh` 在 `.colab-url` 为空时自动回退读 `.kaggle-url`。旧的失效 Colab URL 已清空（备份 `~/tmp/colab-url.stale.bak`）。
+
+### 14.4 已知实测（来自用户侧 Kaggle 跑通的一次）
+
+| 项 | 数值 |
+|---|---|
+| 平台 | Kaggle Notebook，GPU T4 x2，Internet On |
+| animagine-xl-4.0 fp16，832×1216 @28 步 | **22.1s/张**，mean 161.8，md5 `1bb81b4d…` |
+| cloudflared quick tunnel | **出网正常**，URL 形如 `https://xxx.trycloudflare.com`，location `iad21` |
+
+**仍缺（跑通后回填）**：① animagine 的**加载秒数**（只报了推理）② `sd-turbo` 512×768@4 的加载/推理/尺寸/字节/md5/mean
+③ Kaggle Settings 里显示的**剩余 GPU 小时**。
+
 

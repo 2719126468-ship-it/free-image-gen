@@ -9,6 +9,9 @@
 #   colab_gen.sh "prompt"                      # single image, url from cache
 #   colab_gen.sh "prompt" https://x.trycloudflare.com
 #   colab_gen.sh --health                      # 查档位/GPU/队列
+#
+# Kaggle: examples/anima_kaggle.ipynb 跑出的 URL 写进 ~/.dsh/.kaggle-url（等价于 .colab-url）；
+#         两者都存在时 .colab-url 优先（可在 --health 输出里看 workdir/engine 确认是哪个平台）
 #   colab_gen.sh --batch prompts.txt           # 批量出图
 #   colab_gen.sh --flush                       # 把产出搬进 Drive
 #
@@ -21,6 +24,7 @@
 set -u
 
 URLFILE="$HOME/.dsh/.colab-url"
+KAGGLEFILE="$HOME/.dsh/.kaggle-url"   # Kaggle 版隧道地址；两个文件等价，谁有内容用谁
 OUTDIR="${OUTDIR:-/sdcard/Download}"
 NEG='worst quality, low quality, score_1, score_2, score_3, artist name, blurry, jpeg artifacts, chromatic aberration'
 
@@ -55,13 +59,14 @@ EOF
 resolve_url() {
   if [ -n "${COLAB_URL:-}" ]; then URL="$COLAB_URL"
   elif [ -n "${1:-}" ]; then URL="$1"
-  elif [ -r "$URLFILE" ]; then URL=$(tr -d '\r\n' < "$URLFILE")
+  elif [ -r "$URLFILE" ] && [ -s "$URLFILE" ]; then URL=$(tr -d '\r\n' < "$URLFILE")
+  elif [ -r "$KAGGLEFILE" ] && [ -s "$KAGGLEFILE" ]; then URL=$(tr -d '\r\n' < "$KAGGLEFILE")
   else URL=""; fi
   URL="${URL%/}"
 }
 
 require_url() {
-  [ -z "$URL" ] && { echo "[!] no url: pass one, set COLAB_URL, or write $URLFILE"; exit 1; }
+  [ -z "$URL" ] && { echo "[!] no url: pass one, set COLAB_URL, or write $URLFILE / $KAGGLEFILE"; exit 1; }
 }
 
 # Termux/Android 上 /tmp 可能不存在，健康检查的临时文件必须落在可写目录
