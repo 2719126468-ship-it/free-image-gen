@@ -1,6 +1,6 @@
 # 项目记忆文档 (MEMORY.md)
 
-> 最后更新：2026-10-23 19:20（第 14 次修订：Device key 直付复测 kontext-pro→401 / klein-4b→200；Agnes t2i 出图、i2i 503；Claw Hunter 部署受 workerd/android 阻；收尾提交 `0c97d69`）。第 13 次修订：★ 新增 4.10 + routes.md 第十三节「2026-10 新增免费 API 源实测」——CF 额度已恢复并出真图、NIM/Agnes 端点与 401 原文坐实（待 key）、Prodia 判死、Modal 降级；特性提交 `500b295`，docs 收尾提交 `365c78c`）
+> 最后更新：2026-10-23 19:45（第 15 次修订：★ pollen 到期前探测 —— klein-4b 出 2 张创作候选（768×1024，md5 不同）、flux.1-schnell 0.002 确认可付、余额读数通了（4.703，实耗 0.017/0.03）；Kaggle 验证卡在需手机验证+浏览器操作，只交付了 `examples/kaggle_sdxl_probe.ipynb`，**无实测数据**）。第 14 次修订：Device key 直付复测 kontext-pro→401 / klein-4b→200；Agnes t2i 出图、i2i 503；Claw Hunter 部署受 workerd/android 阻；收尾提交 `0c97d69`）。第 13 次修订：★ 新增 4.10 + routes.md 第十三节「2026-10 新增免费 API 源实测」——CF 额度已恢复并出真图、NIM/Agnes 端点与 401 原文坐实（待 key）、Prodia 判死、Modal 降级；特性提交 `500b295`，docs 收尾提交 `365c78c`）
 > 目标读者：后续参与本项目的 AI 编程助手（Codex / DSH / Claude）
 > 用途：新开会话先读此文档恢复上下文，省 Token 且防失忆。
 
@@ -63,7 +63,11 @@
 风格「日系二次元写实」，审核宽松，解剖清晰。
 
 - 工作副本：`~/tmp/ref_mermaid.jpg`（768×1024，142702B）
-- **状态：用户尚未选定任何一版**。现有候选（全在 `~/th-img/`，不再新增）：
+- **★ 2026-10-23 新增一轮（到期前 pollen，2 张，新方向：人类腿/膝分开/脚踩床垫，中性措辞，未复述任何已否决方案）**：
+  `~/th-img/klein_create_1.jpg`（768×1024 / 141485B / md5 `19a295b8…` / luma 152.0）｜
+  `~/th-img/klein_create_2.jpg`（768×1024 / 133580B / md5 `7c8edab4…` / luma 153.2，prompt 变体加 relaxed pose + soft natural lighting）。
+  模型均为 `black-forest-labs/flux.2-klein-4b`（0.005/张）。**两图 md5 不同，非缓存**。用户尚未选定。
+- **状态：用户尚未选定任何一版**。更早的候选（全在 `~/th-img/`，不再新增）：
   - 第一轮 k2（脚踩地）/ k6（双腿全上床）/ k7（脚踝交叉）——对比图
     `kontext_pick.jpg`（3 图带标签，1320×638）+ `kontext_sheet.jpg`（9 图拼版）
   - 第二轮 fix_A / fix_B / fix_C + pose_P1 / pose_P2 / pose_P3（显式"坐着、脚掌踩床垫"措辞）
@@ -81,7 +85,7 @@
 | **Vercel AI Gateway** `vercel_img.py` | Vercel 账号 **+必须绑卡** | ✅ | ✅ kontext-pro | 20–60s | $5/30天（**不绑卡实测 403**） | 商业标准 |
 | **Replicate Try-for-Free** `replicate_edit.py` | Replicate 账号（免费） | ✅ | ✅ kontext-pro | 20–60s | 有限次数 | 商业标准 |
 | **AI Horde** `horde_img2img.py` | 匿名 `0000000000` | ✅ | ✅ `source_image` | **45s–21min** | 无限 | **无** |
-| **Pollinations 新版** `pol_edit.py` | pollen key | ✅ | ✅ **kontext-pro** | 20–40s | 0.03 pollen/张 | **松** |
+| **Pollinations 新版** `pol_edit.py` | pollen key（Device key **10-24 到期**） | ✅ | ✅ **klein-4b 0.005**（kontext-pro 0.03 现 **401**） | 20–40s | 余额 4.703（实测） | **松** |
 | **Pollinations 匿名** `pol_anon.py` | 无 | ✅ | ❌ **已证伪** | 1–5s | 1张/45s/IP | 无 |
 | Gemini web 反代 | Gemini Cookie | ✅ | ✅ | 快 | 普号免费 | **禁 NSFW** |
 | HF ZeroGPU `anima_gen.sh` | HF token | ✅ | — | 1–10s | 5min GPU/天（已耗尽） | 无 |
@@ -134,8 +138,18 @@ python3 scripts/pol_edit.py <ref> <out> "<instruction>" black-forest-labs/flux.1
   **但同一把 key 打 `flux.2-klein-4b`（0.005/张）→ HTTP 200 / 188833B JSON → 141451B PNG / 768×1024 /
   luma 161.8 / md5 `aa13110a6305748d…`**。→ **Device key 能直付，是 kontext-pro 这一档被拒**
   （目录里 kontext-pro 仍在、0.03/张）。要定性「额度阈值 vs 独立鉴权」需再花 0.03 对照，等授权。
-  另：`community/*-free` 那批免费 id **已下线**（400 `Invalid model or alias`）；`/v1/models` 现在 **386** 个模型；
-  余额**无法用 API 读**（`/account/balance|usage|keys` 全 401/超时），只能看扣费事件
+  另：`community/*-free` 那批免费 id **已下线**（400 `Invalid model or alias`）；
+  余额**时通时不通**：`/account/balance` 有时 200（本轮读到 `{"balance":4.703,"accountBalance":{"total":0.203,...}}`），
+  其余 `usage/keys` 仍 401/超时
+- **★ 2026-10-23 19:30 到期前探测（实耗 0.017 pollen，余额 4.72→4.703 对账吻合）**：
+  * `black-forest-labs/flux.2-klein-4b`（**全名！短 id 报 400 Invalid model**）：edits 200 → 141485B/133580B，
+    两张 768×1024，md5 `19a295b8…`/`7c8edab4…`（**md5 不同 = 不是缓存**）；同模型 t2i 也 200（12348B/512²）
+  * `black-forest-labs/flux.1-schnell`（**0.002，最便宜**）：GET `/image/<prompt>?model=…` → 200/19700B/512²
+  * `black-forest-labs/flux.1-kontext-pro`（0.03）仍 **401**（本轮未再试）
+  * **GET `/image/...` 也吃 `Authorization: Bearer`**，不必把 key 拼 query
+  * **模型目录是 per-key 视图且会变**：上一轮 386 个（含大量 community），本轮只 148 个，
+    `community/MarcosFRG/flux-schnell:paid`、`black-forest-labs/flux-3-image-klein` **不在目录里** → 探测前先拉一次
+  * 一次 `HTTP 0 Remote end closed connection` 后重试成功，余额对账显示**未扣费** → 连接层断开可安全重试一次
 - **`key_budget` 是预算上限不是余额**：dashboard 建的 visible-chickadee（budget=None）edits 402
   - **2026-10-17 修正**：**Device key（`~/.pollinations/credentials.json` 的 apiKey）可以直接付 edits**，
     实测连续 7 张成功，balance 与 accountBalance 同步下降。**以后统一用 Device key 当 POLLEN_KEY**
@@ -772,6 +786,11 @@ Prodia **判死**（域名无 A 记录）；Modal 按用户结论**降级为「�
 - [ ] **Claw Hunter 部署（待桌面端）**：Termux 上 `workerd` 无 android/arm64 构建（原文已录），
       需在 x86_64/arm64 Linux 或 macOS 上 `npx wrangler login && npx wrangler deploy`，
       部署后把 URL 写 `~/.dsh/.clawhunter-url`，客户端 `scripts/clawhunter_gen.py` 即可用
+- [ ] **★ Kaggle SDXL 验证（待用户操作）**：`examples/kaggle_sdxl_probe.ipynb` 已备好（3 格：依赖+GPU探测 /
+      animagine 832×1216@28 / sd-turbo 512×768@4）；**卡点=Kaggle 手机验证 + 浏览器点 Accelerator/Internet**，
+      本轮零实测数据。跑完把 GPU 型号/显存/两图耗时字节 md5/剩余 GPU 小时贴回来，补进 routes.md §14
+- [ ] **★ Device key 10-24 到期**：余额 4.703 会作废；已确认可付 = `flux.1-schnell` 0.002 / `flux.2-klein-4b` 0.005（t2i+edits）；
+      kontext-pro 仍 401。若还要用，得在到期前决定（当前无待办消耗）
 - [ ] **★ SDXL 画质（用户明确要）**：bf16 已证伪（上游结论见上一行），剩余两条：sdcpp(v7，待真机) / Modal 免费 GPU（`scripts/modal_sdxl.py`，需 `modal token new`）；先重开 notebook 跑 **cell1**（看 CPU 型号+bf16 判定）
       和 **cell8**（bf16/fp32/fp16 单步实测）→ 若 bf16 真快则 CPU 走 bf16；
       否则走 `scripts/sdcpp_colab.sh`（Q4_K 2.8GB，CPU 唯一能跑完 SDXL 的路）或 `scripts/modal_sdxl.py`（A10G 3s/张）
