@@ -501,3 +501,68 @@ $ wrangler --version
 3. 顺手排除的误判：`community/openai/gpt-image-1-mini-free`、`community/black-forest-labs/flux-2-dev-free`
    这两个社区免费 id **已不存在**，返回 `Invalid model or alias`（400）→ 4.2 节记的社区 free 路由已下线。
 
+### 13.11 Device key 到期前探测（2026-10-23 19:30，实测消耗 0.017 pollen）
+
+**余额读数（这次通了）**：`GET https://gen.pollinations.ai/account/balance` → **HTTP 200**
+```json
+{"balance":4.703,"accountBalance":{"total":0.203,"tier":0.203,"paid":0}}
+```
+起点按任务说明约 **4.72** → 本轮实耗 **0.017**（≤0.03 授权上限，剩余 0.013 未用）。
+注：上一轮同一端点返回 401/超时，说明该端点**时通时不通**，能读到就记，读不到别当结论。
+
+| 模型 | 标价 | 端点 | HTTP | 字节/尺寸 | md5 | 判定 |
+|---|---|---|---|---|---|---|
+| `black-forest-labs/flux.2-klein-4b`（edits） | 0.005 | POST `/v1/images/edits` | **200** | 141485B / **768×1024** | `19a295b8533f0d15…` | ✅ 能付（创作第 1 张） |
+| 同上（edits，变体 prompt） | 0.005 | 同上 | **200** | 133580B / 768×1024 | `7c8edab443665121…` | ✅ 能付（第 2 张，与第 1 张 md5 不同） |
+| `black-forest-labs/flux.1-schnell`（t2i） | **0.002** | GET `/image/<prompt>?model=…` | **200** | 19700B / 512×512 | `06a0200763ce727e…` | ✅ **最便宜的能付模型** |
+| `black-forest-labs/flux.2-klein-4b`（t2i） | 0.005 | POST `/v1/images/generations` | **200** | 12348B / 512×512 | `076e94bfb3d221db…` | ✅ 同一模型 t2i 也能付 |
+| `black-forest-labs/flux.1-kontext-pro` | 0.03 | POST `/v1/images/edits` | **401** | — | — | ❌ 仍 401（上轮定性，本轮未再试） |
+
+**踩坑（省 future 一次失败）**
+1. **短 id 不认**：`flux.2-klein-4b` → `400 Invalid model or alias`；必须写全 **`black-forest-labs/flux.2-klein-4b`**（400 不收费）
+2. **GET `/image/...` 也认 `Authorization: Bearer`**，不必把 key 拼进 query
+3. **模型目录是 per-key 视图且会变**：同一把 key 上一轮拉到 **386** 个模型（含大量 `community/*`），
+   本轮只拉到 **148** 个且 `community/MarcosFRG/flux-schnell:paid`、`black-forest-labs/flux-3-image-klein`
+   都**不在目录里**（不是价格问题）→ 目录不能当稳定清单用，探测前先拉一次
+4. 一次 `HTTP 0 Remote end closed connection without response` 后重试成功，且余额对账显示**未扣费**
+   → 连接层断开不计费，可安全重试一次
+
+**便宜模型可用清单（本轮确认）**：`flux.1-schnell` 0.002 ／ `flux.2-klein-4b` 0.005（t2i + edits 都行）。
+**不可用**：`flux.1-kontext-pro`（401）。
+
+---
+
+## 十四、Kaggle Notebook 实测（2026-10-23：**未执行，卡在需用户操作的一步**）
+
+**卡点（不改任务边界，直接报告）**：Kaggle 的 GPU 开关需要**手机验证过的账号**，且跑 notebook 必须在浏览器里点
+Settings → Accelerator、Internet。这两步都不是本机脚本能做的，所以本轮**没有在 Kaggle 上产生任何实测数据**。
+按纪律「需要用户点浏览器的步骤立即停下报告」，这里只交付**可直接上传的最小验证件**，不做假数据。
+
+### 14.1 已交付：`examples/kaggle_sdxl_probe.ipynb`（3 格，最小验证）
+
+| 格 | 内容 | 记录项 |
+|---|---|---|
+| 0 | markdown 操作说明 | Accelerator=GPU T4 x2 / Internet=On / 手机验证 |
+| 1 | `!pip install diffusers transformers accelerate safetensors pillow` + `nvidia-smi` | GPU 型号、显存、torch/cuda 版本 |
+| 2 | `cagliostrolab/animagine-xl-4.0` fp16，**832×1216 @28 步** | 加载秒数、推理秒数、尺寸、字节、md5、mean |
+| 3 | `stabilityai/sd-turbo` fp16，**512×768 @4 步** | 同上（用于对照「能跑通」的最低门槛） |
+
+验收标准写死在脚本里：两张都要 `mean ≥ 6`（非黑图）+ 打印 md5，跑完把输出贴回来即可判定。
+
+### 14.2 若要移植 `anima_colab.ipynb`（本轮不做，先列适配点）
+
+1. **依赖格**：cell 1 现在是 `%pip` 且只在 `IN_COLAB or IN_KAGGLE` 下执行——Kaggle 分支已加，但要确认
+   Kaggle 镜像的 torch 版本与 diffusers 兼容（不兼容就先跑 sd-turbo，animagine 标「待适配」）
+2. **路径回退**：`OUT_DIR = '/content/out' if IN_COLAB else './out'` → Kaggle 是 `/kaggle/working/out`；
+   `SDCPP_DIR` 同理已回退到 `abspath('.')`；Drive 存档段在 Kaggle 会跳过（无挂载）
+3. **cloudflared**：二进制要装到**可写目录**（`/usr/local/bin` 在 Kaggle 不一定可写），
+   `anima_kaggle.ipynb` 里已改成 `os.access` 探测 + 回退 `~/bin`
+4. **持久化差异**：Kaggle 会话结束 `/kaggle/working` 保留（可作为输出提交），可用 12h / GPU 30h 每周；
+   比 Colab 免费档宽松，但**不能用 "Save & Run All"** 拿 tunnel URL（必须交互跑）
+5. **cloudflared quick tunnel 是否在 Kaggle 出网白名单内**：未验证 —— 这是移植前第一个要试的点
+
+### 14.3 待用户执行后回填
+
+跑完三格，把以下四项贴回来，我补成本节的「实测表」并更新总表：
+GPU 型号/显存、animagine（加载/推理/尺寸/字节/md5）、sd-turbo（同上）、Settings 里的**剩余 GPU 小时数**。
+
